@@ -1,0 +1,10 @@
+{
+  "theaters": [
+    "cgv"
+  ],
+  "notification_days": [
+    7,
+    3,
+    1
+  ]
+}
