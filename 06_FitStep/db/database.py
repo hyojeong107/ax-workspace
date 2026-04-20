@@ -50,6 +50,8 @@ def init_db():
         CREATE TABLE IF NOT EXISTS users (
             id            INT AUTO_INCREMENT PRIMARY KEY,
             name          VARCHAR(100) NOT NULL,
+            username      VARCHAR(50)  UNIQUE,
+            password_hash VARCHAR(255),
             age           INT,
             gender        VARCHAR(10),
             height_cm     FLOAT,
@@ -60,6 +62,20 @@ def init_db():
             created_at    DATETIME DEFAULT NOW()
         )
     """)
+
+    # 기존 테이블에 username / password_hash 컬럼이 없으면 추가 (마이그레이션)
+    db_name = os.getenv("DB_NAME", "fitstep")
+    for col_name, col_def in [
+        ("username",      "VARCHAR(50)  UNIQUE"),
+        ("password_hash", "VARCHAR(255)"),
+    ]:
+        cursor.execute(
+            "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS "
+            "WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'users' AND COLUMN_NAME = %s",
+            (db_name, col_name),
+        )
+        if cursor.fetchone()[0] == 0:
+            cursor.execute(f"ALTER TABLE users ADD COLUMN {col_name} {col_def}")
 
     # 2. 운동 종목 테이블 (앱 내 운동 라이브러리)
     cursor.execute("""

@@ -1,0 +1,18 @@
+version: "3.9"
+
+services:
+  gym-rag:
+    build: .
+    container_name: gym_rag_api
+    ports:
+      - "8000:8000"
+    environment:
+      - OPENAI_API_KEY          # 호스트 시스템 환경변수에서 자동 전달
+    env_file:
+      - .env
+    volumes:
+      - chroma_data:/app/data/chroma_db
+    restart: unless-stopped
+
+volumes:
+  chroma_data:

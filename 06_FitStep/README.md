@@ -17,7 +17,8 @@ FitStep은 Python CLI 기반의 개인 맞춤형 헬스 관리 앱입니다.
 6. [데이터베이스 구조](#데이터베이스-구조)
 7. [핵심 로직 설명](#핵심-로직-설명)
 8. [화면 예시](#화면-예시)
-9. [앞으로 추가할 기능](#앞으로-추가할-기능)
+9. [Streamlit 웹 앱으로 전환](#-streamlit-웹-앱으로-전환-07_streamlit)
+10. [앞으로 추가할 기능](#앞으로-추가할-기능)
 
 ---
 
@@ -71,8 +72,8 @@ FitStep은 Python CLI 기반의 개인 맞춤형 헬스 관리 앱입니다.
 │   └── gym_rag.py           # ChromaDB 임베딩 저장 & 검색 함수
 │
 ├── db/                      # 데이터베이스 관련
-│   ├── database.py          # MySQL 연결 & 테이블 초기화
-│   └── user_repo.py         # 사용자 CRUD 함수
+│   ├── database.py          # MySQL 연결 & 테이블 초기화 & 컬럼 마이그레이션
+│   └── user_repo.py         # 사용자 CRUD 함수 (save_user, get_user_by_login, username_exists 등)
 │
 ├── data/                    # 로컬 데이터 저장 (gitignore 처리)
 │   ├── gym_1.json           # 사용자별 헬스장 기구 JSON (예: user_id=1)
@@ -185,6 +186,8 @@ DB_NAME=fitstep         # 사용할 데이터베이스 이름 (없으면 자동 
 |------|------|------|
 | id | INT (PK) | 자동 증가 고유 ID |
 | name | VARCHAR(100) | 이름 |
+| username | VARCHAR(50) UNIQUE | 로그인 아이디 |
+| password_hash | VARCHAR(255) | SHA-256 해시된 비밀번호 |
 | age | INT | 나이 |
 | gender | VARCHAR(10) | 성별 (male / female / other) |
 | height_cm | FLOAT | 키 (cm) |
@@ -193,6 +196,8 @@ DB_NAME=fitstep         # 사용할 데이터베이스 이름 (없으면 자동 
 | goal | VARCHAR(200) | 운동 목표 (복수 선택 시 쉼표로 구분 저장) |
 | health_notes | TEXT | 건강 주의사항 (부상 이력 등) |
 | created_at | DATETIME | 등록 일시 |
+
+> 기존 테이블에 `username`, `password_hash` 컬럼이 없을 경우, `init_db()` 실행 시 `INFORMATION_SCHEMA.COLUMNS`를 조회해 자동으로 컬럼을 추가합니다 (무중단 마이그레이션).
 
 #### `routines` — AI 추천 루틴
 
@@ -419,6 +424,109 @@ AI가 루틴을 생성 중입니다...
 │ 플랭크    │ 5회 │  맨몸  │ ⬆ 레벨업! │ 횟수를 32회로     │
 ╰──────────────────────────────────────────────────────────╯
 ```
+
+---
+
+## 🌐 Streamlit 웹 앱으로 전환 (`07_Streamlit`)
+
+CLI 환경의 불편함을 해소하기 위해 **Streamlit** 기반의 대화형 웹 인터페이스로 재구현했습니다.  
+비즈니스 로직(DB, RAG, AI 추천, 점진적 향상 분석)은 `06_FitStep` 모듈을 그대로 재사용하고,  
+UI 레이어만 Rich CLI → Streamlit 웹 컴포넌트로 교체하는 방식으로 구현했습니다.
+
+**주요 업데이트 이력**
+
+| 버전 | 변경 내용 |
+|------|-----------|
+| v1.0 | CLI → Streamlit 최초 전환, 흑백 디자인, Plotly 차트 |
+| v1.1 | 프로필 드롭다운 → 아이디/비밀번호 로그인 시스템으로 교체 |
+| v1.1 | `users` 테이블에 `username`, `password_hash` 컬럼 추가 및 자동 마이그레이션 |
+| v1.1 | Plotly `titlefont` 파라미터 → `title=dict(font=...)` 로 수정 (Plotly 6.x 호환) |
+| v1.1 | `init_db()` 캐시 제거 — 마이그레이션이 매 서버 시작 시 반드시 실행되도록 변경 |
+
+---
+
+### 📁 위치
+
+```
+07_Streamlit/
+└── 07-1.Streamlit.py    # Streamlit 웹 앱 단일 파일
+```
+
+---
+
+### 🛠 추가된 기술 스택
+
+| 분류 | 사용 기술 | 역할 |
+|------|-----------|------|
+| 웹 UI | [Streamlit](https://streamlit.io/) | 페이지 라우팅, 위젯, 세션 관리 |
+| 시각화 | [Plotly](https://plotly.com/python/) | 인터랙티브 차트 (바 차트, 파이 차트) |
+| 데이터 처리 | pandas | 테이블 렌더링, 날짜 포맷 |
+
+---
+
+### 🔄 CLI → 웹 주요 변경 사항
+
+| 항목 | CLI (`06_FitStep/main.py`) | 웹 (`07_Streamlit/07-1.Streamlit.py`) |
+|------|--------------------------|---------------------------------------|
+| 로그인 / 사용자 선택 | CLI 드롭다운 선택 | 아이디 · 비밀번호 입력 폼 (SHA-256 해싱) |
+| 회원가입 | `save_user()` 직접 호출 | 아이디 중복 확인 + 비밀번호 일치 검사 후 저장 |
+| 사용자 입력 | `input()`, `Prompt.ask()` | `st.text_input()`, `st.selectbox()`, `st.form()` |
+| 화면 출력 | Rich `Panel`, `Table`, `Console` | `st.markdown()`, `st.dataframe()`, `st.columns()` |
+| 상태 유지 | 지역 변수 (`today_result`) | `st.session_state` |
+| 페이지 전환 | while 루프 + 메뉴 번호 | `st.session_state.page` + `st.rerun()` |
+| 운동 기록 흐름 | CLI 인터랙티브 루프 | 스텝별 `st.form()` 순차 렌더링 |
+| 루틴 출력 | Rich 테이블 | 운동 카드 + Plotly 차트 |
+| 대시보드 출력 | Rich 패널 4개 + 테이블 | 통계 카드 + 히트맵 + 바 차트 + 테이블 |
+| 헬스장 기구 관리 | CLI 순차 입력 | 아코디언 목록 + 인라인 편집 + 삭제 |
+
+---
+
+### ✨ 웹 앱 전용 시각화 기능
+
+CLI에는 없었던 다음 시각화 요소가 추가되었습니다.
+
+**루틴 추천 페이지**
+- 🥧 **근육 부위 파이 차트** — 오늘 루틴의 부위별 비중(가슴·등·하체·복근 등)을 도넛 차트로 표시
+- 📊 **운동 볼륨 바 차트** — 종목별 총 볼륨(세트×횟수)을 수평 바 차트로 비교
+- 🃏 **운동 카드** — 종목명·부위 뱃지·세트/횟수/권장 무게·자세 팁을 카드 형태로 시각화
+
+**운동 기록 페이지**
+- 💊 **칩형 진행 표시줄** — 완료 운동(검정), 현재 운동(흰색 테두리), 미완료(회색) 칩으로 진행 상황 직관적 파악
+- 📈 **Streamlit Progress Bar** — 전체 완료 비율 바 표시
+
+**대시보드 페이지**
+- 🟫 **30일 활동 히트맵** — 날짜별 운동 횟수를 색상 강도(흰색→회색→검정)로 표시
+- 📊 **최대 중량 바 차트** — 운동별 최대 중량 기록을 Plotly 바 차트로 비교
+- 🏆 **통계 카드 4종** — 완료 루틴 / 총 기록 / 활동 일수 / 연속 운동일을 카드 UI로 표시
+- 📋 **성장 현황 테이블** — 레벨업 권장 여부(⬆️/→)와 다음 목표를 테이블로 정리
+
+---
+
+### 🎨 디자인 원칙
+
+- **흑백(Black & White)** 기반 — 배경 `#ffffff`, 주요 요소 `#000000`, 보조 `#f5f5f5`
+- 버튼 2종: 검정 채우기(기본) / 흰색 테두리(보조)
+- AI 조언은 말풍선(bubble) 형태로 대화형 느낌 연출
+- 모든 CSS를 `st.markdown()` 인라인 스타일로 주입, 외부 의존성 없음
+
+---
+
+### 🚀 실행 방법
+
+```bash
+# 1. 가상환경 활성화 (06_FitStep 의존성 포함)
+venv\Scripts\activate          # Windows
+source venv/bin/activate       # macOS / Linux
+
+# 2. 추가 패키지 설치 (최초 1회)
+pip install streamlit plotly
+
+# 3. 웹 앱 실행
+streamlit run 07_Streamlit/07-1.Streamlit.py
+```
+
+브라우저에서 `http://localhost:8501` 로 접속합니다.  
+`.env` 파일과 MySQL 설정은 CLI 버전과 동일하게 사용합니다.
 
 ---
 

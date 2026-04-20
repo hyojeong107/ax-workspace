@@ -1,21 +1,57 @@
 # 사용자 데이터 저장/조회 함수 모음
 # MySQL은 ? 대신 %s 를 플레이스홀더로 사용합니다
 
+import hashlib
 from db.database import get_connection
 
-def save_user(name, age, gender, height_cm, weight_kg, fitness_level, goal, health_notes):
+
+def _hash_pw(password: str) -> str:
+    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+
+def save_user(name, age, gender, height_cm, weight_kg, fitness_level, goal, health_notes,
+              username=None, password=None):
     """새 사용자를 DB에 저장하고 생성된 ID를 반환합니다."""
+    pw_hash = _hash_pw(password) if password else None
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        INSERT INTO users (name, age, gender, height_cm, weight_kg, fitness_level, goal, health_notes)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-    """, (name, age, gender, height_cm, weight_kg, fitness_level, goal, health_notes))
+        INSERT INTO users (name, username, password_hash, age, gender, height_cm, weight_kg,
+                           fitness_level, goal, health_notes)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    """, (name, username, pw_hash, age, gender, height_cm, weight_kg,
+          fitness_level, goal, health_notes))
     conn.commit()
     user_id = cursor.lastrowid
     cursor.close()
     conn.close()
     return user_id
+
+
+def get_user_by_login(username: str, password: str):
+    """아이디·비밀번호로 사용자를 조회합니다. 일치하지 않으면 None 반환."""
+    pw_hash = _hash_pw(password)
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute(
+        "SELECT * FROM users WHERE username = %s AND password_hash = %s",
+        (username, pw_hash),
+    )
+    user = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    return user
+
+
+def username_exists(username: str) -> bool:
+    """해당 아이디가 이미 사용 중인지 확인합니다."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM users WHERE username = %s", (username,))
+    exists = cursor.fetchone() is not None
+    cursor.close()
+    conn.close()
+    return exists
 
 def get_user(user_id):
     """ID로 사용자 정보를 조회합니다."""
