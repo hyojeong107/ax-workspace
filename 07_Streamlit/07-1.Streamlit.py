@@ -8,44 +8,37 @@ import sys
 import os
 
 # ── Secrets → env vars (Streamlit Cloud) ─────────────────────────────────────
-# .env 로컬 개발은 그대로 동작, Cloud에서는 st.secrets 값이 우선 적용됩니다
-_SECRET_KEYS = [
-    "RAG_API_URL", "RAG_API_KEY",
-    "DB_HOST", "DB_PORT", "DB_USER", "DB_PASSWORD", "DB_NAME",
-]
+_SECRET_KEYS = ["RAG_API_URL", "RAG_API_KEY"]
 try:
     for _k in _SECRET_KEYS:
         if _k in st.secrets and not os.environ.get(_k):
             os.environ[_k] = str(st.secrets[_k])
 except Exception:
-    pass  # 로컬에서 secrets.toml 없을 때 무시 — .env 파일로 동작
+    pass
 
 import json
 import pandas as pd
 import plotly.graph_objects as go
-from datetime import datetime, date, timedelta
+from datetime import date, timedelta
 
-# ── Path Setup ────────────────────────────────────────────────────────────────
+# ── Path Setup (RAG 모듈만 사용) ──────────────────────────────────────────────
 _FITSTEP = os.path.normpath(
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "06_FitStep")
 )
 sys.path.insert(0, _FITSTEP)
-os.chdir(_FITSTEP)  # 06_FitStep 내부 상대 경로(data/) 정상 동작
+os.chdir(_FITSTEP)
 
-from db.database import init_db, get_connection
-from db.user_repo import (
-    get_user, get_all_users, save_user, update_user_weight,
-    get_user_by_login, username_exists,
+# ── API Client (DB + RAG 모두 FastAPI 경유) ───────────────────────────────────
+_STREAMLIT_DIR = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, _STREAMLIT_DIR)
+from api_client import (
+    api_save_user, api_login,
+    api_username_exists,
+    api_save_routine, api_get_today_routine, api_complete_routine,
+    api_save_log, api_get_logged_names, api_get_recent_logs,
+    api_get_recent_exercises, api_get_stats, api_get_progression,
+    api_get_exercise_history,
 )
-from modules.recommender import recommend_routine, get_today_routine
-from modules.workout_logger import save_log, mark_routine_complete, get_logged_exercises
-from modules.progression import (
-    get_overall_progress_summary,
-    analyze_progression,
-    build_progression_context,
-)
-from modules.dashboard import _get_stats, _get_recent_logs
-from modules.gym_setup import get_gym_profile, _save_gym_json
 from rag.gym_rag import has_gym_data, save_gym_to_vector_db, get_gym_profile_from_api
 
 # ── Page Config ───────────────────────────────────────────────────────────────
@@ -237,8 +230,7 @@ for _k, _v in _DEFAULTS.items():
     st.session_state.setdefault(_k, _v)
 
 
-# ── DB Init ───────────────────────────────────────────────────────────────────
-init_db()
+# (DB init is handled by FastAPI startup)
 
 
 # ── Navigation ────────────────────────────────────────────────────────────────
@@ -328,7 +320,7 @@ def page_login():
                 if not login_id.strip() or not login_pw.strip():
                     st.error("아이디와 비밀번호를 모두 입력해주세요.")
                 else:
-                    user_row = get_user_by_login(login_id.strip(), login_pw)
+                    user_row = api_login(login_id.strip(), login_pw)
                     if user_row:
                         st.session_state.user_id = user_row["id"]
                         st.session_state.user = dict(user_row)
@@ -401,7 +393,7 @@ def page_login():
                     err = None
                     if not username_in.strip() or len(username_in.strip()) < 4:
                         err = "아이디는 4자 이상이어야 합니다."
-                    elif username_exists(username_in.strip()):
+                    elif api_username_exists(username_in.strip()):
                         err = f"'{username_in.strip()}' 아이디는 이미 사용 중입니다."
                     elif not pw1 or len(pw1) < 4:
                         err = "비밀번호는 4자 이상이어야 합니다."
@@ -415,13 +407,13 @@ def page_login():
                     if err:
                         st.error(err)
                     else:
-                        uid = save_user(
+                        new_user = api_save_user(
                             name.strip(), age, gender, height, weight,
                             fitness_level, ", ".join(goals), health_notes,
-                            username=username_in.strip(), password=pw1,
+                            username_in.strip(), pw1,
                         )
-                        st.session_state.user_id = uid
-                        st.session_state.user = dict(get_user(uid))
+                        st.session_state.user_id = new_user["id"]
+                        st.session_state.user = dict(new_user)
                         st.session_state.creating_user = False
                         nav("menu")
 
@@ -521,11 +513,104 @@ def page_menu():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# ROUTINE RECOMMENDATION LOGIC (uses API client instead of direct DB)
+# ══════════════════════════════════════════════════════════════════════════════
+def _build_routine_prompt(user: dict, progression_context: str, gym_context: str) -> str:
+    fitness_labels = {"beginner": "초보자", "intermediate": "중급자", "advanced": "고급자"}
+    level = fitness_labels.get(user["fitness_level"], user["fitness_level"])
+    bmi = round(user["weight_kg"] / ((user["height_cm"] / 100) ** 2), 1)
+    prog_section = f"\n{progression_context}\n" if progression_context else ""
+    if gym_context:
+        gym_section = f"\n[헬스장 환경 - 아래 기구·시설만 사용하는 운동으로 구성해주세요]\n{gym_context}\n→ 위 목록에 없는 기구가 필요한 운동은 절대 추천하지 마세요.\n"
+    else:
+        gym_section = ""
+    return f"""당신은 전문 헬스 트레이너입니다.
+아래 사용자 정보를 바탕으로 오늘의 헬스장 운동 루틴을 추천해주세요.
+
+[사용자 정보]
+- 나이: {user['age']}세 / 성별: {user['gender']}
+- 키: {user['height_cm']}cm / 몸무게: {user['weight_kg']}kg / BMI: {bmi}
+- 체력 수준: {level}
+- 운동 목표: {user['goal']}
+- 건강 주의사항: {user['health_notes'] or '없음'}
+{prog_section}{gym_section}
+[출력 규칙]
+1. 운동은 4~6개로 구성해주세요.
+2. 목표가 여러 개라면 각 목표에 맞는 운동을 균형있게 섞어주세요.
+3. weight_kg 필드에는 반드시 숫자만 입력하세요. 맨몸 운동이면 0.
+4. 반드시 아래 JSON 형식으로만 응답하세요.
+
+{{
+  "exercises": [
+    {{
+      "name": "운동 이름",
+      "category": "부위 (예: 가슴, 등, 하체, 어깨, 팔, 복근, 유산소)",
+      "sets": 3,
+      "reps": 12,
+      "weight_kg": 40.0,
+      "tip": "자세 또는 주의사항 한 줄"
+    }}
+  ],
+  "advice": "오늘 운동 전체에 대한 맞춤 조언 2~3문장"
+}}"""
+
+
+def _build_progression_context_from_api(user_id: int, past_exercises: list) -> str:
+    if not past_exercises:
+        return ""
+    lines = ["[운동 진행 분석 — 파생/강화 추천 시 반드시 반영]"]
+    for name in past_exercises:
+        history = api_get_exercise_history(user_id, name, limit=5)
+        if not history:
+            continue
+        sessions = len(history)
+        last = history[0]
+        avg_reps = sum(h["reps_done"] for h in history) / sessions
+        ready = sessions >= 2 and last["sets_done"] >= 3 and avg_reps >= 11.0
+        status = "⬆ 레벨업 권장" if ready else "→ 현행 유지"
+        lines.append(
+            f"- {name}: {sessions}회 수행 | "
+            f"최근 {last['sets_done']}세트×{last['reps_done']}회 / {last['weight_kg']}kg | {status}"
+        )
+    return "\n".join(lines)
+
+
+def recommend_routine(user: dict) -> dict:
+    from openai import OpenAI
+    existing = api_get_today_routine(user["id"])
+    if existing:
+        return {
+            "routine_id": existing["id"],
+            "exercises": json.loads(existing["exercises_json"]),
+            "advice": existing["ai_advice"],
+        }
+
+    past = api_get_recent_exercises(user["id"])
+    progression_context = _build_progression_context_from_api(user["id"], past)
+    from rag.gym_rag import retrieve_gym_context
+    gym_context = retrieve_gym_context(user["id"])
+
+    prompt = _build_routine_prompt(user, progression_context, gym_context)
+    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.7,
+        response_format={"type": "json_object"},
+    )
+    data = json.loads(response.choices[0].message.content)
+    exercises = data.get("exercises", [])
+    advice = data.get("advice", "")
+
+    saved = api_save_routine(user["id"], json.dumps(exercises, ensure_ascii=False), advice)
+    return {"routine_id": saved["id"], "exercises": exercises, "advice": advice}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # PAGE: ROUTINE RECOMMENDATION
 # ══════════════════════════════════════════════════════════════════════════════
 def page_recommend():
     user = st.session_state.user
-    uid = st.session_state.user_id
 
     _header("오늘의 운동 루틴", "AI가 설계한 맞춤 루틴")
     _back_btn()
@@ -553,7 +638,6 @@ def page_recommend():
 
     # ── 요약 메트릭 ──
     categories = [ex.get("category", "") for ex in exercises]
-    unique_cats = list(dict.fromkeys(categories))
     total_sets = sum(ex.get("sets", 3) for ex in exercises)
 
     c1, c2, c3 = st.columns(3)
@@ -722,7 +806,7 @@ def page_log():
         return
 
     # ── 기록된 운동 조회 ──
-    logged = get_logged_exercises(routine_id) if routine_id else []
+    logged = api_get_logged_names(routine_id) if routine_id else []
     done_count = len(logged)
     idx = st.session_state.log_index
 
@@ -756,7 +840,7 @@ def page_log():
     # ── 완료 화면 ──
     if idx >= total or done_count >= total:
         if routine_id:
-            mark_routine_complete(routine_id)
+            api_complete_routine(routine_id)
 
         st.markdown(
             """
@@ -771,22 +855,15 @@ def page_log():
 
         if routine_id:
             try:
-                conn = get_connection()
-                cursor = conn.cursor(dictionary=True)
-                cursor.execute(
-                    """
-                    SELECT exercise_name, sets_done, reps_done, weight_kg, note
-                    FROM workout_logs WHERE routine_id = %s ORDER BY id
-                    """,
-                    (routine_id,),
-                )
-                logs = cursor.fetchall()
-                cursor.close()
-                conn.close()
+                logs = api_get_recent_logs(uid, limit=50)
+                logs = [l for l in logs if True]  # already filtered by user
                 if logs:
                     df = pd.DataFrame(logs)
-                    df.columns = ["운동", "세트", "횟수", "무게(kg)", "메모"]
-                    st.dataframe(df, use_container_width=True, hide_index=True)
+                    rename = {"exercise_name": "운동", "sets_done": "세트",
+                              "reps_done": "횟수", "weight_kg": "무게(kg)", "note": "메모"}
+                    df = df.rename(columns=rename)
+                    show_cols = [c for c in ["운동", "세트", "횟수", "무게(kg)", "메모"] if c in df.columns]
+                    st.dataframe(df[show_cols], use_container_width=True, hide_index=True)
             except Exception:
                 pass
 
@@ -849,7 +926,7 @@ def page_log():
 
         submitted = st.form_submit_button("기록하고 다음으로 →")
         if submitted:
-            save_log(uid, routine_id, ex["name"], sets_done, reps_done, weight_done, note)
+            api_save_log(uid, routine_id, ex["name"], sets_done, reps_done, weight_done, note)
             st.session_state.log_index = idx + 1
             st.rerun()
 
@@ -871,7 +948,7 @@ def page_dashboard():
     _back_btn()
 
     # ── 통계 카드 ──
-    stats = _get_stats(uid)
+    stats = api_get_stats(uid)
     c1, c2, c3, c4 = st.columns(4)
     for col, num, label in [
         (c1, stats.get("completed_routines", 0), "완료한 루틴"),
@@ -893,20 +970,12 @@ def page_dashboard():
     # ── 30일 활동 히트맵 ──
     st.markdown("### 30일 활동 현황")
     try:
-        conn = get_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute(
-            """
-            SELECT DATE(logged_at) as log_date, COUNT(*) as cnt
-            FROM workout_logs
-            WHERE user_id = %s AND logged_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
-            GROUP BY DATE(logged_at)
-            """,
-            (uid,),
-        )
-        activity = {str(row["log_date"]): row["cnt"] for row in cursor.fetchall()}
-        cursor.close()
-        conn.close()
+        recent_logs = api_get_recent_logs(uid, limit=200)
+        activity: dict = {}
+        for row in recent_logs:
+            d = str(row.get("log_date", ""))[:10]
+            if d:
+                activity[d] = activity.get(d, 0) + 1
     except Exception:
         activity = {}
 
@@ -937,23 +1006,21 @@ def page_dashboard():
 
     # ── 운동별 성장 현황 ──
     st.markdown("### 운동별 성장 현황")
-    progress_summary = get_overall_progress_summary(uid)
+    progress_summary = api_get_progression(uid)
 
     if progress_summary:
         df_prog = pd.DataFrame(progress_summary)
 
         # 최대 중량 바 차트
-        df_weight = df_prog[df_prog.get("max_weight", pd.Series(dtype=float)).fillna(0) > 0] if "max_weight" in df_prog.columns else pd.DataFrame()
         if "max_weight" in df_prog.columns:
             df_weight = df_prog[df_prog["max_weight"] > 0]
         else:
             df_weight = pd.DataFrame()
 
         if not df_weight.empty:
-            ex_col = "exercise" if "exercise" in df_weight.columns else df_weight.columns[0]
             fig_w = go.Figure(
                 go.Bar(
-                    x=df_weight[ex_col],
+                    x=df_weight["exercise_name"],
                     y=df_weight["max_weight"],
                     marker_color="#000000",
                     text=df_weight["max_weight"].apply(lambda x: f"{x} kg"),
@@ -976,11 +1043,18 @@ def page_dashboard():
 
         # 성장 현황 테이블
         rows = []
-        ex_col = "exercise" if "exercise" in df_prog.columns else df_prog.columns[0]
         for _, item in df_prog.iterrows():
-            ex_name = item.get("exercise") or item.get("exercise_name", "")
-            analysis = analyze_progression(uid, ex_name)
-            ready = analysis.get("ready_to_progress", False)
+            ex_name = item.get("exercise_name", "")
+            history = api_get_exercise_history(uid, ex_name, limit=5)
+            sessions = len(history)
+            avg_reps = sum(h["reps_done"] for h in history) / sessions if sessions else 0
+            last = history[0] if history else {}
+            ready = sessions >= 2 and last.get("sets_done", 0) >= 3 and avg_reps >= 11.0
+            if ready:
+                next_w = round(last.get("weight_kg", 0) * 1.075, 1)
+                suggestion = f"무게를 {next_w}kg으로 늘려보세요" if last.get("weight_kg", 0) > 0 else f"횟수를 {int(avg_reps)+2}회로 늘려보세요"
+            else:
+                suggestion = "현재 무게와 횟수를 유지하세요"
             rows.append(
                 {
                     "운동": ex_name,
@@ -988,7 +1062,7 @@ def page_dashboard():
                     "최대 중량(kg)": item.get("max_weight", 0),
                     "최대 횟수": item.get("max_reps", 0),
                     "상태": "⬆️ 레벨업 권장" if ready else "→ 유지",
-                    "다음 목표": analysis.get("suggestion", ""),
+                    "다음 목표": suggestion,
                 }
             )
 
@@ -1015,11 +1089,11 @@ def page_dashboard():
 
     # ── 최근 기록 ──
     st.markdown("### 최근 운동 기록")
-    logs = _get_recent_logs(uid, limit=20)
+    logs = api_get_recent_logs(uid, limit=20)
     if logs:
         df_logs = pd.DataFrame(logs)
         col_map = {
-            "logged_at": "날짜",
+            "log_date": "날짜",
             "exercise_name": "운동",
             "sets_done": "세트",
             "reps_done": "횟수",
@@ -1048,7 +1122,7 @@ def page_gym():
 
     # ── 기존 데이터로 초기화 (최초 1회) ──
     if not st.session_state.gym_initialized:
-        existing = get_gym_profile(uid) or get_gym_profile_from_api(uid)
+        existing = get_gym_profile_from_api(uid)
         if existing:
             st.session_state.gym_eq_list = list(existing.get("equipment", []))
             st.session_state.gym_name_edit = existing.get("gym_name", "")
@@ -1146,7 +1220,6 @@ def page_gym():
             "equipment": st.session_state.gym_eq_list,
             "notes": gym_notes,
         }
-        _save_gym_json(uid, gym_data)
         save_gym_to_vector_db(uid, gym_data)
         st.session_state.today_result = None  # 루틴 캐시 초기화
         st.session_state.gym_initialized = False

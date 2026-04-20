@@ -1,18 +1,43 @@
 version: "3.9"
 
 services:
+  mysql:
+    image: mysql:8.0
+    container_name: fitstep_mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: fitstep
+      MYSQL_CHARSET: utf8mb4
+    volumes:
+      - mysql_data:/var/lib/mysql
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   gym-rag:
     build: .
     container_name: gym_rag_api
     ports:
       - "8000:8000"
     environment:
-      - OPENAI_API_KEY          # 호스트 시스템 환경변수에서 자동 전달
+      - OPENAI_API_KEY
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USER=root
+      - DB_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - DB_NAME=fitstep
     env_file:
       - .env
     volumes:
       - chroma_data:/app/data/chroma_db
+    depends_on:
+      mysql:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:
   chroma_data:
+  mysql_data:

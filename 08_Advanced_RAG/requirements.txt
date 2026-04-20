@@ -4,3 +4,4 @@ openai>=2.0.0
 chromadb==1.5.8
 python-dotenv==1.0.1
 pydantic>=2.0.0
+mysql-connector-python==8.3.0

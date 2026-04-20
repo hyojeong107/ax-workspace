@@ -1,16 +1,25 @@
-"""06_6. Main — FastAPI 진입점"""
+"""Main — FastAPI 진입점"""
 
 from fastapi import FastAPI, Depends, HTTPException
 from app.schemas import IndexRequest, IndexResponse, RetrieveResponse, ExistsResponse, GymDataResponse
 from app.auth import verify_api_key
 from app.indexing import index_gym
 from app.retrieval import retrieve_context, gym_exists, get_gym_data
+from app.db import init_db
+from app.db_router import router as db_router
 
 app = FastAPI(
-    title="FitStep Gym RAG API",
-    description="헬스장 기구 정보를 벡터 DB에 저장하고 검색하는 RAG 서비스",
-    version="1.0.0",
+    title="FitStep API",
+    description="FitStep RAG + DB 중계 서비스",
+    version="2.0.0",
 )
+
+app.include_router(db_router, prefix="/db")
+
+
+@app.on_event("startup")
+def startup():
+    init_db()
 
 
 @app.get("/health")
