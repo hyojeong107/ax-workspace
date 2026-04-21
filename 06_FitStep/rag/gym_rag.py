@@ -6,7 +6,7 @@ import os
 from typing import List
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env"))
 
 # ── API 모드 헬퍼 ────────────────────────────────────────────────────────────
 
@@ -50,7 +50,7 @@ def _embed(texts: List[str]) -> List[List[float]]:
 def _chroma_save(user_id: int, gym_data: dict):
     collection = _get_collection()
     try:
-        existing = collection.get(where={"user_id": user_id})
+        existing = collection.get(where={"user_id": {"$eq": user_id}})
         if existing["ids"]:
             collection.delete(ids=existing["ids"])
     except Exception:
@@ -111,7 +111,7 @@ def retrieve_gym_context(user_id: int) -> str:
     else:
         try:
             collection = _get_collection()
-            results = collection.get(where={"user_id": user_id})
+            results = collection.get(where={"user_id": {"$eq": user_id}})
             if not results["documents"]:
                 return ""
             paired = list(zip(results["metadatas"], results["documents"]))
@@ -148,7 +148,7 @@ def has_gym_data(user_id: int) -> bool:
     else:
         try:
             collection = _get_collection()
-            results = collection.get(where={"user_id": user_id})
+            results = collection.get(where={"user_id": {"$eq": user_id}})
             return len(results["ids"]) > 0
         except Exception:
             return False
