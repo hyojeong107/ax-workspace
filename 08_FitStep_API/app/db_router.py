@@ -2,7 +2,7 @@
 
 import hashlib
 from datetime import date
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from app.auth import verify_api_key
 from app.db import get_connection
 from app.db_schemas import (
@@ -10,6 +10,11 @@ from app.db_schemas import (
     RoutineSave, RoutineOut,
     LogSave, LogOut,
 )
+import httpx
+from urllib.parse import quote
+import os
+from dotenv import load_dotenv
+load_dotenv()
 
 router = APIRouter(dependencies=[Depends(verify_api_key)])
 
@@ -103,6 +108,34 @@ def update_weight(user_id: int, body: UserWeightUpdate):
 def save_routine(body: RoutineSave):
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
+    
+    import json
+    try:
+        # 루틴 내의 운동들을 exercises 테이블과 동기화 (없으면 INSERT)
+        exercises = json.loads(body.exercises_json)
+        for ex in exercises:
+            name = ex.get("name")
+            name_en = ex.get("name_en")
+            category = ex.get("category")
+            if name:
+                cursor.execute("SELECT id, name_en FROM exercises WHERE name = %s", (name,))
+                existing = cursor.fetchone()
+                try:
+                    if not existing:
+                        cursor.execute(
+                            "INSERT INTO exercises (name, name_en, category) VALUES (%s, %s, %s)",
+                            (name, name_en, category)
+                        )
+                    elif not existing["name_en"] and name_en:
+                        cursor.execute(
+                            "UPDATE exercises SET name_en = %s, category = %s WHERE name = %s",
+                            (name_en, category, name)
+                        )
+                except Exception as e:
+                    print("운동 정보 동기화 에러:", e)
+    except Exception as e:
+        print("JSON parse error for exercises:", e)
+        
     cursor.execute("""
         INSERT INTO routines (user_id, routine_date, exercises_json, ai_advice)
         VALUES (%s, %s, %s, %s)
@@ -294,3 +327,138 @@ def get_exercise_history(user_id: int, exercise_name: str, limit: int = 5):
     for r in rows:
         r["logged_at"] = str(r["logged_at"])
     return rows
+
+# ── Exercises ────────────────────────────────────────────────────────────────
+
+@router.post("/exercises/sync")
+async def sync_exercises():
+    """RapidAPI ExerciseDB에서 전체 운동 목록을 가져와 DB에 upsert"""
+    rapidapi_key = os.getenv("RAPIDAPI_KEY")
+    if not rapidapi_key:
+        raise HTTPException(status_code=500, detail="RAPIDAPI_KEY not set")
+
+    headers = {
+        "X-RapidAPI-Key": rapidapi_key,
+        "X-RapidAPI-Host": "exercisedb.p.rapidapi.com"
+    }
+
+    all_exercises = []
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(
+                "https://exercisedb.p.rapidapi.com/exercises?limit=1500&offset=0",
+                headers=headers
+            )
+            resp.raise_for_status()
+            all_exercises = resp.json()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"RapidAPI error: {e}")
+
+    conn = get_connection()
+    cursor = conn.cursor()
+    inserted = 0
+    for ex in all_exercises:
+        name_en = ex.get("name", "").strip()
+        body_part = ex.get("bodyPart", "")
+        gif_url = ex.get("gifUrl", "")
+        if not name_en:
+            continue
+        # name_en 기준으로 upsert (한글명은 없으므로 name=name_en으로 임시 저장, synced=1)
+        cursor.execute("""
+            INSERT INTO exercises (name, name_en, body_part, gif_url, synced)
+            VALUES (%s, %s, %s, %s, 1)
+            ON DUPLICATE KEY UPDATE
+                name_en  = VALUES(name_en),
+                body_part = VALUES(body_part),
+                gif_url  = VALUES(gif_url),
+                synced   = 1
+        """, (name_en, name_en, body_part, gif_url))
+        inserted += 1
+
+    conn.commit()
+    cursor.close(); conn.close()
+    return {"synced": inserted}
+
+
+@router.get("/exercises/list")
+def get_exercise_list():
+    """GPT 프롬프트용 운동 목록 반환 (name_en + body_part)"""
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT name_en, body_part FROM exercises WHERE synced = 1 ORDER BY name_en")
+    rows = cursor.fetchall()
+    cursor.close(); conn.close()
+    return rows
+
+
+@router.get("/exercises/gif")
+async def get_exercise_gif(
+    name_kr: str = Query(..., description="운동명(한글)"),
+    name_en: str = Query(None, description="운동명(영문, RapidAPI와 정확히 일치하는 이름)")
+):
+    """
+    synced=1 운동은 DB에 gif_url이 이미 있음 → 바로 반환.
+    루틴 저장 시 등록된 신규 운동(synced=0)은 name_en으로 RapidAPI 조회 후 캐싱.
+    """
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    cursor.execute("SELECT id, gif_url, synced, name_en FROM exercises WHERE name = %s", (name_kr,))
+    exercise = cursor.fetchone()
+
+    if not exercise:
+        # 아직 exercises 테이블에 없으면 등록
+        cursor.execute(
+            "INSERT INTO exercises (name, name_en, synced) VALUES (%s, %s, 0)",
+            (name_kr, name_en)
+        )
+        conn.commit()
+        exercise = {"id": cursor.lastrowid, "gif_url": None, "synced": 0, "name_en": name_en}
+
+    # gif_url이 이미 있으면 바로 반환 (synced=1 포함)
+    if exercise["gif_url"]:
+        cursor.close(); conn.close()
+        return {"gif_url": exercise["gif_url"]}
+
+    # name_en이 없으면 검색 불가
+    effective_name_en = name_en or exercise.get("name_en")
+    if not effective_name_en:
+        cursor.close(); conn.close()
+        return {"gif_url": None}
+
+    rapidapi_key = os.getenv("RAPIDAPI_KEY")
+    if not rapidapi_key:
+        cursor.close(); conn.close()
+        return {"gif_url": None}
+
+    headers = {
+        "X-RapidAPI-Key": rapidapi_key,
+        "X-RapidAPI-Host": "exercisedb.p.rapidapi.com"
+    }
+
+    gif_url = None
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            encoded = quote(effective_name_en.lower())
+            resp = await client.get(
+                f"https://exercisedb.p.rapidapi.com/exercises/name/{encoded}?limit=1&offset=0",
+                headers=headers
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            if isinstance(data, list) and len(data) > 0:
+                gif_url = data[0].get("gifUrl")
+            else:
+                print(f"RapidAPI: no result for '{effective_name_en}'")
+    except Exception as e:
+        print(f"RapidAPI fetch error: {e}")
+
+    if gif_url:
+        cursor.execute(
+            "UPDATE exercises SET gif_url = %s, name_en = %s WHERE id = %s",
+            (gif_url, effective_name_en, exercise["id"])
+        )
+        conn.commit()
+
+    cursor.close(); conn.close()
+    return {"gif_url": gif_url}

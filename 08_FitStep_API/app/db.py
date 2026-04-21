@@ -83,6 +83,28 @@ def init_db():
             FOREIGN KEY (routine_id) REFERENCES routines(id)
         )
     """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS exercises (
+            id         INT AUTO_INCREMENT PRIMARY KEY,
+            name       VARCHAR(100) NOT NULL UNIQUE,
+            name_en    VARCHAR(150),
+            category   VARCHAR(50),
+            body_part  VARCHAR(50),
+            gif_url    VARCHAR(512) DEFAULT NULL,
+            synced     TINYINT(1) DEFAULT 0,
+            created_at DATETIME DEFAULT NOW()
+        )
+    """)
+
+    for col, definition in [
+        ("gif_url", "VARCHAR(512) DEFAULT NULL"),
+        ("body_part", "VARCHAR(50)"),
+        ("synced", "TINYINT(1) DEFAULT 0"),
+    ]:
+        try:
+            cursor.execute(f"ALTER TABLE exercises ADD COLUMN {col} {definition}")
+        except Exception:
+            pass
 
     conn.commit()
     cursor.close()

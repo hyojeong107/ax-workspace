@@ -123,3 +123,19 @@ def api_get_progression(user_id):
 
 def api_get_exercise_history(user_id, exercise_name, limit=5):
     return _get(f"/db/logs/exercise-history/{user_id}/{exercise_name}", limit=limit)
+
+def api_get_exercise_gif(name_kr, name_en):
+    try:
+        res = _get("/db/exercises/gif", name_kr=name_kr, name_en=name_en)
+        return res.get("gif_url")
+    except Exception as e:
+        print(f"Error fetching gif for {name_kr}: {e}")
+        return None
+
+def api_get_exercise_list():
+    """synced 운동 목록 반환 (name_en, body_part)"""
+    try:
+        return _get("/db/exercises/list")
+    except Exception as e:
+        print(f"Error fetching exercise list: {e}")
+        return []

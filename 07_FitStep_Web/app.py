@@ -44,7 +44,7 @@ from api_client import (
     api_save_routine, api_get_today_routine, api_complete_routine, api_delete_today_routine,
     api_save_log, api_get_logged_names, api_get_recent_logs,
     api_get_recent_exercises, api_get_stats, api_get_progression,
-    api_get_exercise_history,
+    api_get_exercise_history, api_get_exercise_gif, api_get_exercise_list
 )
 from rag.gym_rag import has_gym_data, save_gym_to_vector_db, get_gym_profile_from_api
 
@@ -522,7 +522,7 @@ def page_menu():
 # ══════════════════════════════════════════════════════════════════════════════
 # ROUTINE RECOMMENDATION LOGIC (uses API client instead of direct DB)
 # ══════════════════════════════════════════════════════════════════════════════
-def _build_routine_prompt(user: dict, progression_context: str, gym_context: str) -> str:
+def _build_routine_prompt(user: dict, progression_context: str, gym_context: str, exercise_list: list = None) -> str:
     fitness_labels = {"beginner": "초보자", "intermediate": "중급자", "advanced": "고급자"}
     level = fitness_labels.get(user["fitness_level"], user["fitness_level"])
     bmi = round(user["weight_kg"] / ((user["height_cm"] / 100) ** 2), 1)
@@ -531,6 +531,12 @@ def _build_routine_prompt(user: dict, progression_context: str, gym_context: str
         gym_section = f"\n[헬스장 환경 - 아래 기구·시설만 사용하는 운동으로 구성해주세요]\n{gym_context}\n→ 위 목록에 없는 기구가 필요한 운동은 절대 추천하지 마세요.\n"
     else:
         gym_section = "\n[헬스장 환경]\n일반 헬스장 기준으로 바벨, 덤벨, 케이블 머신, 스미스 머신, 레그프레스, 랫풀다운, 체스트 플라이 머신, 시티드 로우, 레그 컬, 레그 익스텐션 등 모든 기구를 자유롭게 사용할 수 있습니다. 매 루틴마다 다양한 기구를 활용해 변화 있는 운동을 구성해주세요.\n"
+
+    if exercise_list:
+        ex_lines = "\n".join(f"- {e['name_en']} ({e['body_part']})" for e in exercise_list)
+        exercise_section = f"\n[사용 가능한 근력 운동 목록 - name_en은 반드시 아래 목록에서 정확히 복사해서 사용하세요]\n{ex_lines}\n"
+    else:
+        exercise_section = ""
     return f"""당신은 전문 헬스 트레이너입니다.
 아래 사용자 정보를 바탕으로 오늘의 헬스장 운동 루틴을 추천해주세요.
 
@@ -540,13 +546,13 @@ def _build_routine_prompt(user: dict, progression_context: str, gym_context: str
 - 체력 수준: {level}
 - 운동 목표: {user['goal']}
 - 건강 주의사항: {user['health_notes'] or '없음'}
-{prog_section}{gym_section}
+{prog_section}{gym_section}{exercise_section}
 [출력 규칙]
 1. 운동은 4~6개로 구성해주세요.
 2. 목표가 여러 개라면 각 목표에 맞는 운동을 균형있게 섞어주세요.
 3. weight_kg 필드에는 반드시 숫자만 입력하세요. 맨몸 운동이면 0.
 4. category가 "유산소"인 운동은 반드시 아래 유산소 전용 규칙을 따르세요.
-5. 반드시 아래 JSON 형식으로만 응답하세요.
+5. 반드시 아래 JSON 형식으로만 응답하세요. (name_en은 위 목록에서 정확히 복사한 이름을 사용하세요)
 
 [유산소 운동 전용 규칙]
 - sets/reps/weight_kg 필드를 사용하지 말고, duration_min(분), speed_kmh(속도 km/h, 해당 없으면 0), incline_pct(경사도%, 해당 없으면 0)을 사용하세요.
@@ -559,6 +565,7 @@ def _build_routine_prompt(user: dict, progression_context: str, gym_context: str
   "exercises": [
     {{
       "name": "근력 운동 이름",
+      "name_en": "Barbell Bench Press",
       "category": "가슴",
       "sets": 3,
       "reps": 12,
@@ -567,6 +574,7 @@ def _build_routine_prompt(user: dict, progression_context: str, gym_context: str
     }},
     {{
       "name": "런닝머신",
+      "name_en": "Running (Treadmill)",
       "category": "유산소",
       "duration_min": 30,
       "speed_kmh": 8.0,
@@ -628,7 +636,8 @@ def recommend_routine(user: dict, force_new: bool = False) -> dict:
     from rag.gym_rag import retrieve_gym_context
     gym_context = retrieve_gym_context(user["id"])
 
-    prompt = _build_routine_prompt(user, progression_context, gym_context)
+    exercise_list = api_get_exercise_list()
+    prompt = _build_routine_prompt(user, progression_context, gym_context, exercise_list)
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     response = client.chat.completions.create(
         model="gpt-4o-mini",
@@ -826,31 +835,48 @@ def page_recommend():
                 if ex.get("weight_kg", 0) > 0
                 else "자체중량"
             )
+            name_kr = ex.get("name", "")
+            name_en = ex.get("name_en", "")
+
+            # API 호출해서 gif_url 가져오기
+            gif_url = api_get_exercise_gif(name_kr, name_en)
+
             st.markdown(
                 f"""
-                <div class='ex-card'>
-                    <div style='display:flex; justify-content:space-between; align-items:flex-start'>
-                        <div style='flex:1'>
-                            <div style='display:flex; align-items:center; gap:6px; margin-bottom:5px'>
-                                <span style='background:#000; color:#fff; border-radius:4px;
-                                             padding:1px 8px; font-size:0.75rem; font-weight:700'>{i+1}</span>
-                                {_badge(ex.get("category", ""), "gray")}
-                            </div>
-                            <div style='font-size:1.12rem; font-weight:700; margin-bottom:4px'>{ex.get("name", "")}</div>
-                            <div style='color:#555; font-size:0.87rem; line-height:1.5'>{ex.get("tip", "")}</div>
-                        </div>
-                        <div style='text-align:right; flex-shrink:0; margin-left:1.5rem'>
-                            <div style='font-size:1.6rem; font-weight:700; line-height:1'>
-                                {ex.get("sets", 3)}<span style='font-size:0.85rem; font-weight:400; color:#666'> 세트</span>
-                            </div>
-                            <div style='font-size:1rem; color:#444; margin-top:2px'>{ex.get("reps", 12)} 회</div>
-                            <div style='font-size:0.85rem; color:#999; margin-top:4px'>{weight_str}</div>
-                        </div>
-                    </div>
+                <div style='display:flex; align-items:center; gap:6px; margin-bottom:10px; margin-top:20px'>
+                    <span style='background:#000; color:#fff; border-radius:4px;
+                                 padding:1px 8px; font-size:0.75rem; font-weight:700'>{i+1}</span>
+                    {_badge(ex.get("category", ""), "gray")}
+                    <span style='font-size:1.1rem; font-weight:700; margin-left:4px'>{name_kr}</span>
                 </div>
-                """,
-                unsafe_allow_html=True,
+                """, unsafe_allow_html=True
             )
+
+            col1, col2 = st.columns([1.5, 3])
+            
+            with col1:
+                if gif_url:
+                    st.image(gif_url, use_container_width=True)
+                else:
+                    st.info("운동 이미지를 준비 중입니다. 🥲")
+            
+            with col2:
+                if ex.get("category") == "유산소":
+                    aerobic_info = f"`{ex.get('duration_min', '-')}분`"
+                    if ex.get("speed_kmh", 0):
+                        aerobic_info += f"  속도: `{ex.get('speed_kmh')} km/h`"
+                    if ex.get("incline_pct", 0):
+                        aerobic_info += f"  경사: `{ex.get('incline_pct')}%`"
+                    st.markdown(f"🎯 **목표:** {aerobic_info}", unsafe_allow_html=True)
+                else:
+                    st.markdown(
+                        f"🎯 **목표:** `{ex.get('sets', 3)} Set` × `{ex.get('reps', 12)} Reps` &nbsp;  <span style='color:#777;'>({weight_str})</span>",
+                        unsafe_allow_html=True
+                    )
+                if ex.get("tip"):
+                    st.info(f"💡 **AI Coach Tip:** {ex.get('tip')}")
+                
+            st.divider()
 
     st.markdown("<br>", unsafe_allow_html=True)
     c_log, c_new = st.columns(2)
