@@ -530,7 +530,7 @@ def _build_routine_prompt(user: dict, progression_context: str, gym_context: str
     if gym_context:
         gym_section = f"\n[헬스장 환경 - 아래 기구·시설만 사용하는 운동으로 구성해주세요]\n{gym_context}\n→ 위 목록에 없는 기구가 필요한 운동은 절대 추천하지 마세요.\n"
     else:
-        gym_section = ""
+        gym_section = "\n[헬스장 환경]\n일반 헬스장 기준으로 바벨, 덤벨, 케이블 머신, 스미스 머신, 레그프레스, 랫풀다운, 체스트 플라이 머신, 시티드 로우, 레그 컬, 레그 익스텐션 등 모든 기구를 자유롭게 사용할 수 있습니다. 매 루틴마다 다양한 기구를 활용해 변화 있는 운동을 구성해주세요.\n"
     return f"""당신은 전문 헬스 트레이너입니다.
 아래 사용자 정보를 바탕으로 오늘의 헬스장 운동 루틴을 추천해주세요.
 
