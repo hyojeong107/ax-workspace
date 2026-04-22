@@ -56,164 +56,245 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# ── Global CSS (Black & White) ────────────────────────────────────────────────
+# ── Global CSS (Pastel Lavender & Health Design) ──────────────────────────────
 st.markdown(
     """
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
 /* ── Base ── */
 *, *::before, *::after { box-sizing: border-box; }
-.stApp { background: #ffffff !important; color: #111111 !important; }
+html, body, .stApp {
+    font-family: 'Inter', system-ui, sans-serif !important;
+    background: linear-gradient(135deg, #e8e8f8 0%, #f0eef8 30%, #e6f0e8 70%, #eae6f5 100%) !important;
+    background-attachment: fixed !important;
+    color: #1a1a2e !important;
+    min-height: 100vh;
+}
+.stApp { background: linear-gradient(135deg, #e8e8f8 0%, #f0eef8 30%, #e6f0e8 70%, #eae6f5 100%) !important; }
 #MainMenu, footer, header, .stDeployButton { display: none !important; }
 section[data-testid="stSidebar"] { display: none !important; }
 
 /* ── Buttons ── */
 .stButton > button {
-    background: #000000 !important;
+    background: linear-gradient(135deg, #2d2d6b 0%, #4a3880 100%) !important;
     color: #ffffff !important;
     border: none !important;
-    border-radius: 7px !important;
+    border-radius: 12px !important;
     font-weight: 600 !important;
     width: 100% !important;
-    padding: 0.58rem 1.2rem !important;
+    padding: 0.65rem 1.4rem !important;
     letter-spacing: 0.01em;
     font-size: 0.95rem !important;
-    transition: opacity 0.15s;
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 15px rgba(45, 45, 107, 0.25) !important;
 }
-.stButton > button:hover { opacity: 0.80 !important; }
-.stButton > button:focus { outline: 2px solid #000 !important; }
+.stButton > button:hover {
+    transform: translateY(-1px) !important;
+    box-shadow: 0 6px 20px rgba(45, 45, 107, 0.35) !important;
+    opacity: 1 !important;
+}
+.stButton > button:focus { outline: 2px solid #7b68c8 !important; outline-offset: 2px; }
 
 /* outline button — wrap in <div class="btn-outline"> */
 .btn-outline .stButton > button {
-    background: #ffffff !important;
-    color: #000000 !important;
-    border: 1.5px solid #000000 !important;
+    background: rgba(255, 255, 255, 0.7) !important;
+    color: #2d2d6b !important;
+    border: 1.5px solid #2d2d6b !important;
+    box-shadow: 0 2px 8px rgba(45, 45, 107, 0.12) !important;
+}
+.btn-outline .stButton > button:hover {
+    background: rgba(255, 255, 255, 0.9) !important;
 }
 
 /* ── Inputs ── */
 .stTextInput input,
 .stNumberInput input,
 .stTextArea textarea {
-    border: 1.5px solid #000000 !important;
-    border-radius: 7px !important;
-    background: #ffffff !important;
-    color: #111111 !important;
+    border: 1.5px solid rgba(123, 104, 200, 0.35) !important;
+    border-radius: 10px !important;
+    background: rgba(255, 255, 255, 0.75) !important;
+    color: #1a1a2e !important;
+    backdrop-filter: blur(8px);
+    transition: border-color 0.2s;
+}
+.stTextInput input:focus,
+.stNumberInput input:focus,
+.stTextArea textarea:focus {
+    border-color: #7b68c8 !important;
+    box-shadow: 0 0 0 3px rgba(123, 104, 200, 0.15) !important;
 }
 .stSelectbox [data-baseweb="select"],
 .stMultiSelect [data-baseweb="select"] {
-    border: 1.5px solid #000000 !important;
-    border-radius: 7px !important;
+    border: 1.5px solid rgba(123, 104, 200, 0.35) !important;
+    border-radius: 10px !important;
+    background: rgba(255, 255, 255, 0.75) !important;
 }
 
 /* ── Cards ── */
 .card {
-    border: 1.5px solid #000000;
-    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.7);
+    border-radius: 16px;
     padding: 1.4rem 1.6rem;
-    background: #ffffff;
+    background: rgba(255, 255, 255, 0.65);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     margin-bottom: 0.6rem;
+    box-shadow: 0 4px 20px rgba(45, 45, 107, 0.08);
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+.card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 28px rgba(45, 45, 107, 0.14);
 }
 .card-soft {
-    border: 1px solid #e0e0e0;
-    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    border-radius: 14px;
     padding: 1.2rem 1.4rem;
-    background: #fafafa;
+    background: rgba(255, 255, 255, 0.5);
+    backdrop-filter: blur(8px);
     margin-bottom: 0.5rem;
+    box-shadow: 0 2px 12px rgba(45, 45, 107, 0.06);
 }
 .ex-card {
-    border: 1px solid #dddddd;
-    border-left: 4px solid #000000;
-    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.65);
+    border-left: 4px solid #7b68c8;
+    border-radius: 12px;
     padding: 1rem 1.3rem;
-    background: #ffffff;
+    background: rgba(255, 255, 255, 0.6);
+    backdrop-filter: blur(10px);
     margin-bottom: 0.75rem;
+    box-shadow: 0 3px 14px rgba(45, 45, 107, 0.08);
 }
 .stat-box {
-    border: 1.5px solid #000000;
-    border-radius: 10px;
-    padding: 1.3rem 0.8rem;
+    border: 1px solid rgba(255, 255, 255, 0.8);
+    border-radius: 16px;
+    padding: 1.4rem 0.8rem;
     text-align: center;
-    background: #ffffff;
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(12px);
+    box-shadow: 0 4px 20px rgba(45, 45, 107, 0.1);
 }
 .stat-num {
-    font-size: 2.1rem;
-    font-weight: 700;
+    font-size: 2.2rem;
+    font-weight: 800;
     line-height: 1.1;
-    color: #000000;
+    background: linear-gradient(135deg, #2d2d6b, #7b68c8);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
 }
 .stat-lbl {
     font-size: 0.72rem;
-    color: #777777;
+    color: #6b6b8a;
     text-transform: uppercase;
     letter-spacing: 0.09em;
     margin-top: 5px;
+    font-weight: 500;
 }
 
 /* ── AI bubble ── */
 .ai-bubble {
-    background: #f5f5f5;
-    border-radius: 12px 12px 12px 2px;
+    background: linear-gradient(135deg, rgba(230, 225, 248, 0.85), rgba(220, 235, 222, 0.85));
+    border: 1px solid rgba(255, 255, 255, 0.8);
+    border-radius: 16px 16px 16px 4px;
     padding: 1.1rem 1.4rem;
-    color: #333333;
+    color: #1a1a2e;
     margin: 0.3rem 0 1.2rem;
     font-size: 0.95rem;
     line-height: 1.7;
+    backdrop-filter: blur(8px);
+    box-shadow: 0 3px 16px rgba(123, 104, 200, 0.12);
 }
 
 /* ── Badges ── */
 .badge {
     display: inline-block;
-    background: #000000;
+    background: linear-gradient(135deg, #2d2d6b, #4a3880);
     color: #ffffff;
-    border-radius: 4px;
-    padding: 2px 9px;
+    border-radius: 6px;
+    padding: 3px 10px;
     font-size: 0.72rem;
     font-weight: 600;
     letter-spacing: 0.04em;
+    box-shadow: 0 2px 6px rgba(45, 45, 107, 0.25);
 }
 .badge-gray {
     display: inline-block;
-    background: #f0f0f0;
-    color: #555555;
-    border-radius: 4px;
-    padding: 2px 9px;
+    background: rgba(255, 255, 255, 0.65);
+    color: #4a4a6a;
+    border: 1px solid rgba(123, 104, 200, 0.25);
+    border-radius: 6px;
+    padding: 3px 10px;
     font-size: 0.72rem;
     font-weight: 500;
 }
 .badge-outline {
     display: inline-block;
     background: transparent;
-    border: 1px solid #000000;
-    color: #000000;
-    border-radius: 4px;
-    padding: 2px 9px;
+    border: 1.5px solid #7b68c8;
+    color: #4a3880;
+    border-radius: 6px;
+    padding: 3px 10px;
     font-size: 0.72rem;
     font-weight: 500;
 }
 
 /* ── Divider ── */
-.divider { border-top: 1px solid #e8e8e8; margin: 1.4rem 0; }
+.divider { border-top: 1px solid rgba(123, 104, 200, 0.2); margin: 1.4rem 0; }
 
 /* ── Table ── */
 .dataframe thead tr th {
-    background: #000000 !important;
+    background: linear-gradient(135deg, #2d2d6b, #4a3880) !important;
     color: #ffffff !important;
 }
+.dataframe tbody tr:hover { background: rgba(123, 104, 200, 0.07) !important; }
 
 /* ── Form container ── */
 [data-testid="stForm"] {
-    border: 1.5px solid #000000;
-    border-radius: 10px;
-    padding: 1.2rem;
+    border: 1px solid rgba(123, 104, 200, 0.25);
+    border-radius: 16px;
+    padding: 1.4rem;
+    background: rgba(255, 255, 255, 0.5);
+    backdrop-filter: blur(10px);
 }
 
 /* ── Progress bar ── */
-.stProgress > div > div > div { background: #000000 !important; }
+.stProgress > div > div > div {
+    background: linear-gradient(90deg, #7b68c8, #4a9b7f) !important;
+    border-radius: 4px;
+}
 
 /* ── Spinner ── */
-.stSpinner > div { border-top-color: #000000 !important; }
+.stSpinner > div { border-top-color: #7b68c8 !important; }
 
 /* ── Info / warning / success overrides ── */
-[data-testid="stAlert"] { border-radius: 8px; }
+[data-testid="stAlert"] {
+    border-radius: 12px;
+    backdrop-filter: blur(8px);
+    background: rgba(255, 255, 255, 0.6) !important;
+}
+
+/* ── Expander ── */
+[data-testid="stExpander"] {
+    border: 1px solid rgba(123, 104, 200, 0.2) !important;
+    border-radius: 12px !important;
+    background: rgba(255, 255, 255, 0.5) !important;
+    backdrop-filter: blur(8px);
+}
+
+/* ── Block container ── */
+.block-container {
+    padding-top: 2rem !important;
+}
+
+/* ── Dataframe ── */
+[data-testid="stDataFrame"] {
+    border-radius: 12px !important;
+    overflow: hidden;
+    border: 1px solid rgba(123, 104, 200, 0.15) !important;
+    background: rgba(255,255,255,0.6) !important;
+}
 </style>
 """,
     unsafe_allow_html=True,
@@ -252,12 +333,12 @@ def nav(page: str):
 # ── UI Helpers ────────────────────────────────────────────────────────────────
 def _header(title: str, subtitle: str = ""):
     st.markdown(
-        f"<h1 style='margin-bottom:0; letter-spacing:-0.03em'>{title}</h1>",
+        f"<h1 style='margin-bottom:0; letter-spacing:-0.03em; background: linear-gradient(135deg, #2d2d6b, #7b68c8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;'>{title}</h1>",
         unsafe_allow_html=True,
     )
     if subtitle:
         st.markdown(
-            f"<p style='color:#777; margin-top:3px; font-size:0.95rem'>{subtitle}</p>",
+            f"<p style='color:#6b6b8a; margin-top:3px; font-size:0.95rem; font-weight:500'>{subtitle}</p>",
             unsafe_allow_html=True,
         )
     st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
@@ -279,9 +360,9 @@ def _badge(text: str, variant: str = "filled") -> str:
 
 def _bw_layout() -> dict:
     return dict(
-        paper_bgcolor="white",
-        plot_bgcolor="white",
-        font=dict(family="Inter, system-ui, sans-serif", color="#111"),
+        paper_bgcolor="rgba(255,255,255,0)",
+        plot_bgcolor="rgba(255,255,255,0)",
+        font=dict(family="Inter, system-ui, sans-serif", color="#1a1a2e"),
         margin=dict(l=0, r=0, t=20, b=30),
         showlegend=False,
     )
@@ -299,9 +380,13 @@ def page_login():
         st.markdown(
             """
             <div style='text-align:center; padding:2rem 0 1.8rem'>
-                <div style='font-size:3.2rem; line-height:1'>💪</div>
-                <h1 style='font-size:3rem; letter-spacing:-0.05em; margin:6px 0 0'>FitStep</h1>
-                <p style='color:#888; margin:4px 0 0; font-size:0.95rem'>나만의 AI 헬스 코치</p>
+                <div style='width:72px; height:72px; background:linear-gradient(135deg, #2d2d6b, #7b68c8);
+                            border-radius:20px; display:flex; align-items:center; justify-content:center;
+                            margin:0 auto 1rem; box-shadow:0 8px 24px rgba(45,45,107,0.3); font-size:2rem;'>💪</div>
+                <h1 style='font-size:2.8rem; letter-spacing:-0.05em; margin:6px 0 0;
+                           background:linear-gradient(135deg, #2d2d6b, #7b68c8);
+                           -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;'>FitStep</h1>
+                <p style='color:#6b6b8a; margin:6px 0 0; font-size:0.95rem; font-weight:500'>나만의 AI 헬스 코치</p>
             </div>
             """,
             unsafe_allow_html=True,
@@ -451,15 +536,20 @@ def page_menu():
 
         st.markdown(
             f"""
-            <div style='display:flex; align-items:center; gap:1rem; margin-bottom:0.8rem'>
-                <div style='width:50px; height:50px; background:#000; border-radius:50%;
-                            display:flex; align-items:center; justify-content:center;
-                            color:#fff; font-size:1.3rem; font-weight:700; flex-shrink:0'>
+            <div style='display:flex; align-items:center; gap:1rem; margin-bottom:0.8rem;
+                        background:rgba(255,255,255,0.6); border-radius:16px; padding:1rem 1.2rem;
+                        border:1px solid rgba(255,255,255,0.8); backdrop-filter:blur(10px);
+                        box-shadow:0 4px 20px rgba(45,45,107,0.08);'>
+                <div style='width:52px; height:52px;
+                            background:linear-gradient(135deg, #2d2d6b, #7b68c8);
+                            border-radius:50%; display:flex; align-items:center; justify-content:center;
+                            color:#fff; font-size:1.3rem; font-weight:700; flex-shrink:0;
+                            box-shadow:0 4px 12px rgba(45,45,107,0.3);'>
                     {user['name'][0]}
                 </div>
                 <div>
-                    <div style='font-size:1.25rem; font-weight:700; line-height:1.2'>{user['name']}</div>
-                    <div style='font-size:0.82rem; color:#888; margin-top:2px'>
+                    <div style='font-size:1.2rem; font-weight:700; color:#1a1a2e; line-height:1.2'>{user['name']}</div>
+                    <div style='font-size:0.82rem; color:#6b6b8a; margin-top:3px; font-weight:500'>
                         {fitness_label} &nbsp;·&nbsp; {user.get('goal', '')}
                     </div>
                 </div>
@@ -480,23 +570,25 @@ def page_menu():
         )
 
         menus = [
-            ("🏋️", "오늘의 운동 루틴 추천", "AI가 나에게 맞는 루틴을 설계해드려요", "recommend"),
-            ("✅", "운동 완료 기록", "오늘 한 운동을 세트별로 기록해요", "log"),
-            ("📊", "성장 대시보드", "나의 운동 기록과 성장 현황을 확인해요", "dashboard"),
-            ("🏢", "헬스장 기구 관리", "보유 기구를 등록·수정하면 더 정확한 추천이 가능해요", "gym"),
+            ("🏋️", "오늘의 운동 루틴 추천", "AI가 나에게 맞는 루틴을 설계해드려요", "recommend", "linear-gradient(135deg, #e8e4f8, #d4cef0)"),
+            ("✅", "운동 완료 기록", "오늘 한 운동을 세트별로 기록해요", "log", "linear-gradient(135deg, #d4eeda, #c8e8d0)"),
+            ("📊", "성장 대시보드", "나의 운동 기록과 성장 현황을 확인해요", "dashboard", "linear-gradient(135deg, #e0e8f8, #ccd8f0)"),
+            ("🏢", "헬스장 기구 관리", "보유 기구를 등록·수정하면 더 정확한 추천이 가능해요", "gym", "linear-gradient(135deg, #f0e8f8, #e4d8f0)"),
         ]
 
-        for icon, label, desc, target in menus:
+        for icon, label, desc, target, grad in menus:
             left, right = st.columns([11, 1])
             with left:
                 st.markdown(
                     f"""
-                    <div class='card' style='margin-bottom:0.3rem; padding:1rem 1.4rem'>
+                    <div class='card' style='margin-bottom:0.3rem; padding:1rem 1.4rem; background:{grad}; border:1px solid rgba(255,255,255,0.85);'>
                         <div style='display:flex; align-items:center; gap:1rem'>
-                            <div style='font-size:1.4rem; width:36px; text-align:center; flex-shrink:0'>{icon}</div>
+                            <div style='font-size:1.5rem; width:42px; height:42px; display:flex;
+                                        align-items:center; justify-content:center; flex-shrink:0;
+                                        background:rgba(255,255,255,0.6); border-radius:12px;'>{icon}</div>
                             <div>
-                                <div style='font-weight:600; font-size:1rem; line-height:1.3'>{label}</div>
-                                <div style='color:#888; font-size:0.82rem; margin-top:2px'>{desc}</div>
+                                <div style='font-weight:700; font-size:0.98rem; color:#1a1a2e; line-height:1.3'>{label}</div>
+                                <div style='color:#6b6b8a; font-size:0.82rem; margin-top:3px; font-weight:400'>{desc}</div>
                             </div>
                         </div>
                     </div>
@@ -722,12 +814,13 @@ def page_recommend():
         cat_series = pd.Series(categories).value_counts()
         if not cat_series.empty:
             colors = [
-                "#000000",
-                "#333333",
-                "#555555",
-                "#777777",
-                "#999999",
-                "#bbbbbb",
+                "#7b68c8",
+                "#4a9b7f",
+                "#2d2d6b",
+                "#a88fd4",
+                "#6bbfa0",
+                "#4a3880",
+                "#c8b8e8",
             ]
             fig_pie = go.Figure(
                 go.Pie(
@@ -735,7 +828,7 @@ def page_recommend():
                     values=cat_series.values.tolist(),
                     marker=dict(
                         colors=colors[: len(cat_series)],
-                        line=dict(color="#ffffff", width=2),
+                        line=dict(color="rgba(255,255,255,0.8)", width=2),
                     ),
                     textfont=dict(color="#ffffff", size=12),
                     hole=0.45,
@@ -764,10 +857,14 @@ def page_recommend():
                 x=volumes,
                 y=ex_names,
                 orientation="h",
-                marker_color="#000000",
+                marker=dict(
+                    color=volumes,
+                    colorscale=[[0, "#c8b8e8"], [0.5, "#7b68c8"], [1, "#2d2d6b"]],
+                    showscale=False,
+                ),
                 text=[f"{v}회" for v in volumes],
                 textposition="outside",
-                textfont=dict(size=10, color="#000"),
+                textfont=dict(size=10, color="#1a1a2e"),
             )
         )
         fig_bar.update_layout(
@@ -775,7 +872,7 @@ def page_recommend():
             height=max(200, len(exercises) * 42),
             xaxis=dict(
                 showgrid=True,
-                gridcolor="#f0f0f0",
+                gridcolor="rgba(123,104,200,0.12)",
                 zeroline=False,
                 title=dict(text="총 볼륨 (세트×횟수)", font=dict(size=11)),
             ),
@@ -813,11 +910,12 @@ def page_recommend():
                 f"""
                 <div class='ex-card'>
                     <div style='display:flex; align-items:center; gap:6px; margin-bottom:5px'>
-                        <span style='background:#000; color:#fff; border-radius:4px;
-                                     padding:1px 8px; font-size:0.75rem; font-weight:700'>{i+1}</span>
+                        <span style='background:linear-gradient(135deg,#2d2d6b,#7b68c8); color:#fff; border-radius:6px;
+                                     padding:2px 9px; font-size:0.75rem; font-weight:700;
+                                     box-shadow:0 2px 6px rgba(45,45,107,0.25);'>{i+1}</span>
                         {_badge(ex.get("category", ""), "gray")}
                     </div>
-                    <div style='font-size:0.8rem; color:#888; margin-bottom:6px'>원하는 유산소 운동을 선택하세요</div>
+                    <div style='font-size:0.8rem; color:#6b6b8a; margin-bottom:6px; font-weight:500'>원하는 유산소 운동을 선택하세요</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -852,11 +950,12 @@ def page_recommend():
 
             st.markdown(
                 f"""
-                <div style='display:flex; align-items:center; gap:6px; margin-bottom:10px; margin-top:20px'>
-                    <span style='background:#000; color:#fff; border-radius:4px;
-                                 padding:1px 8px; font-size:0.75rem; font-weight:700'>{i+1}</span>
+                <div style='display:flex; align-items:center; gap:8px; margin-bottom:10px; margin-top:20px'>
+                    <span style='background:linear-gradient(135deg,#2d2d6b,#7b68c8); color:#fff; border-radius:6px;
+                                 padding:2px 9px; font-size:0.75rem; font-weight:700;
+                                 box-shadow:0 2px 6px rgba(45,45,107,0.25);'>{i+1}</span>
                     {_badge(ex.get("category", ""), "gray")}
-                    <span style='font-size:1.1rem; font-weight:700; margin-left:4px'>{name_kr}</span>
+                    <span style='font-size:1.1rem; font-weight:700; color:#1a1a2e; margin-left:4px'>{name_kr}</span>
                 </div>
                 """, unsafe_allow_html=True
             )
@@ -954,11 +1053,11 @@ def page_log():
         is_done = ex["name"] in logged
         is_current = i == idx and not is_done
         if is_done:
-            chip_html += f"<span style='background:#000; color:#fff; border-radius:20px; padding:4px 13px; font-size:0.8rem; font-weight:500'>✓ {ex['name']}</span>"
+            chip_html += f"<span style='background:linear-gradient(135deg,#2d2d6b,#7b68c8); color:#fff; border-radius:20px; padding:5px 14px; font-size:0.8rem; font-weight:600; box-shadow:0 2px 8px rgba(45,45,107,0.25);'>✓ {ex['name']}</span>"
         elif is_current:
-            chip_html += f"<span style='background:#fff; color:#000; border:2px solid #000; border-radius:20px; padding:4px 13px; font-size:0.8rem; font-weight:700'>{ex['name']}</span>"
+            chip_html += f"<span style='background:rgba(255,255,255,0.85); color:#2d2d6b; border:2px solid #7b68c8; border-radius:20px; padding:5px 14px; font-size:0.8rem; font-weight:700; box-shadow:0 2px 10px rgba(123,104,200,0.2);'>{ex['name']}</span>"
         else:
-            chip_html += f"<span style='background:#f5f5f5; color:#aaa; border-radius:20px; padding:4px 13px; font-size:0.8rem'>{ex['name']}</span>"
+            chip_html += f"<span style='background:rgba(255,255,255,0.45); color:#9b9bb8; border:1px solid rgba(123,104,200,0.2); border-radius:20px; padding:5px 14px; font-size:0.8rem; font-weight:400;'>{ex['name']}</span>"
     chip_html += "</div>"
     st.markdown(chip_html, unsafe_allow_html=True)
 
@@ -974,10 +1073,15 @@ def page_log():
 
         st.markdown(
             """
-            <div style='text-align:center; padding:2.5rem 0'>
-                <div style='font-size:3.5rem'>🎉</div>
-                <h2 style='margin-top:0.5rem'>오늘의 운동 완료!</h2>
-                <p style='color:#777'>모든 운동을 기록했습니다. 수고하셨어요!</p>
+            <div style='text-align:center; padding:2.5rem 1rem;
+                        background:linear-gradient(135deg, rgba(232,228,248,0.8), rgba(212,238,218,0.8));
+                        border-radius:20px; border:1px solid rgba(255,255,255,0.8);
+                        backdrop-filter:blur(10px); box-shadow:0 8px 32px rgba(45,45,107,0.12);'>
+                <div style='font-size:3.5rem; margin-bottom:0.5rem'>🎉</div>
+                <h2 style='margin-top:0; background:linear-gradient(135deg,#2d2d6b,#7b68c8);
+                           -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;'>
+                    오늘의 운동 완료!</h2>
+                <p style='color:#6b6b8a; font-weight:500'>모든 운동을 기록했습니다. 수고하셨어요!</p>
             </div>
             """,
             unsafe_allow_html=True,
@@ -1012,25 +1116,26 @@ def page_log():
 
     st.markdown(
         f"""
-        <div class='card' style='margin-bottom:1rem'>
-            <div style='margin-bottom:0.6rem'>
+        <div class='card' style='margin-bottom:1rem; background:linear-gradient(135deg, rgba(232,228,248,0.75), rgba(255,255,255,0.65));'>
+            <div style='margin-bottom:0.6rem; display:flex; align-items:center; gap:8px;'>
                 {_badge(ex.get("category", ""), "gray")}
-                &nbsp;
-                <span style='font-size:0.8rem; color:#aaa'>{idx+1} / {total}</span>
+                <span style='font-size:0.8rem; color:#9b9bb8; font-weight:500'>{idx+1} / {total}</span>
             </div>
-            <h2 style='margin:0 0 5px; font-size:1.6rem'>{ex['name']}</h2>
-            <p style='color:#555; margin:0 0 1rem; font-size:0.9rem; line-height:1.6'>{ex.get('tip','')}</p>
+            <h2 style='margin:0 0 5px; font-size:1.6rem; color:#1a1a2e;'>{ex['name']}</h2>
+            <p style='color:#6b6b8a; margin:0 0 1rem; font-size:0.9rem; line-height:1.6'>{ex.get('tip','')}</p>
             <div style='display:flex; gap:2rem'>
                 <div>
-                    <span style='font-size:1.6rem; font-weight:700'>{ex.get("sets", 3)}</span>
-                    <span style='color:#888; font-size:0.85rem'> 세트 목표</span>
+                    <span style='font-size:1.6rem; font-weight:800; background:linear-gradient(135deg,#2d2d6b,#7b68c8);
+                                 -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;'>{ex.get("sets", 3)}</span>
+                    <span style='color:#6b6b8a; font-size:0.85rem; font-weight:500'> 세트 목표</span>
                 </div>
                 <div>
-                    <span style='font-size:1.6rem; font-weight:700'>{ex.get("reps", 12)}</span>
-                    <span style='color:#888; font-size:0.85rem'> 회 목표</span>
+                    <span style='font-size:1.6rem; font-weight:800; background:linear-gradient(135deg,#4a9b7f,#2d7a60);
+                                 -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;'>{ex.get("reps", 12)}</span>
+                    <span style='color:#6b6b8a; font-size:0.85rem; font-weight:500'> 회 목표</span>
                 </div>
                 <div>
-                    <span style='font-size:1.3rem; font-weight:600; color:#555'>{weight_hint}</span>
+                    <span style='font-size:1.2rem; font-weight:600; color:#6b6b8a'>{weight_hint}</span>
                 </div>
             </div>
         </div>
@@ -1116,19 +1221,20 @@ def page_dashboard():
     for d in dates:
         ds = str(d)
         cnt = activity.get(ds, 0)
-        bg = "#000000" if cnt >= 3 else ("#888888" if cnt > 0 else "#f0f0f0")
+        bg = "#2d2d6b" if cnt >= 3 else ("#7b68c8" if cnt > 0 else "rgba(123,104,200,0.12)")
         label = d.strftime("%m/%d")
         heat_html += (
             f"<div title='{label}: {cnt}회' style='width:30px; height:30px; background:{bg}; "
-            f"border-radius:5px; display:flex; align-items:center; justify-content:center;'>"
+            f"border-radius:6px; display:flex; align-items:center; justify-content:center; "
+            f"border:1px solid rgba(255,255,255,0.4);'>"
         )
         if cnt > 0:
             heat_html += f"<span style='font-size:0.62rem; color:#fff; font-weight:700'>{cnt}</span>"
         heat_html += "</div>"
     heat_html += "</div>"
     heat_html += (
-        "<div style='font-size:0.75rem; color:#999; margin-bottom:1rem'>"
-        "□ 미활동 &nbsp; ■ 회색: 1–2회 &nbsp; ■ 검정: 3회 이상</div>"
+        "<div style='font-size:0.75rem; color:#6b6b8a; margin-bottom:1rem; font-weight:500'>"
+        "□ 미활동 &nbsp; ■ 연보라: 1–2회 &nbsp; ■ 진보라: 3회 이상</div>"
     )
     st.markdown(heat_html, unsafe_allow_html=True)
 
@@ -1152,10 +1258,14 @@ def page_dashboard():
                 go.Bar(
                     x=df_weight["exercise_name"],
                     y=df_weight["max_weight"],
-                    marker_color="#000000",
+                    marker=dict(
+                        color=df_weight["max_weight"],
+                        colorscale=[[0, "#c8b8e8"], [0.5, "#7b68c8"], [1, "#2d2d6b"]],
+                        showscale=False,
+                    ),
                     text=df_weight["max_weight"].apply(lambda x: f"{x} kg"),
                     textposition="outside",
-                    textfont=dict(size=11, color="#000"),
+                    textfont=dict(size=11, color="#1a1a2e"),
                 )
             )
             fig_w.update_layout(
@@ -1163,7 +1273,7 @@ def page_dashboard():
                 height=300,
                 yaxis=dict(
                     showgrid=True,
-                    gridcolor="#f0f0f0",
+                    gridcolor="rgba(123,104,200,0.12)",
                     zeroline=False,
                     title=dict(text="최대 중량 (kg)", font=dict(size=11)),
                 ),

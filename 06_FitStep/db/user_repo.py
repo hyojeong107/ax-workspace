@@ -68,7 +68,7 @@ def get_all_users():
     """저장된 모든 사용자 목록을 반환합니다."""
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT id, name, fitness_level, goal FROM users ORDER BY created_at DESC")
+    cursor.execute("SELECT id, name, age, gender, height_cm, weight_kg, fitness_level, goal, health_notes FROM users ORDER BY created_at DESC")
     users = cursor.fetchall()
     cursor.close()
     conn.close()
