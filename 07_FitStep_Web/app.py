@@ -29,15 +29,10 @@ import plotly.graph_objects as go
 from datetime import date, timedelta
 
 # ── Path Setup (RAG 모듈만 사용) ──────────────────────────────────────────────
-_FITSTEP = os.path.normpath(
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "06_FitStep")
-)
-sys.path.insert(0, _FITSTEP)
-os.chdir(_FITSTEP)
-
-# ── API Client (DB + RAG 모두 FastAPI 경유) ───────────────────────────────────
-_STREAMLIT_DIR = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__))))
+_STREAMLIT_DIR = os.path.dirname(os.path.abspath(__file__))
+_FITSTEP = os.path.normpath(os.path.join(_STREAMLIT_DIR, "..", "06_FitStep"))
 sys.path.insert(0, _STREAMLIT_DIR)
+sys.path.insert(0, _FITSTEP)
 from api_client import (
     api_save_user, api_login,
     api_username_exists,

@@ -318,7 +318,7 @@ GET    /db/exercises/gif    → 운동 GIF URL 조회
 
 ```
 요청 헤더에 포함:
-X-API-Key: khj570832!
+X-API-Key: 여기에_비밀번호_입력
 
 키가 없거나 틀리면 → 401 Unauthorized (거절)
 ```
@@ -592,7 +592,7 @@ elif st.session_state["page"] == "routine":
 ```toml
 # .streamlit/secrets.toml
 RAG_API_URL = "https://xxxx.ngrok.io"
-RAG_API_KEY = "khj570832!"
+RAG_API_KEY = "여기에_비밀번호_입력"
 ```
 
 ---
@@ -631,7 +631,7 @@ streamlit run app.py
 
 5. Secrets 탭에서 환경변수 설정:
    RAG_API_URL = "https://xxxx.ngrok.io"
-   RAG_API_KEY = "khj570832!"
+   RAG_API_KEY = "여기에_비밀번호_입력"
 ```
 
 ### 포트 정리
@@ -664,7 +664,7 @@ API 요청에는 종류가 있습니다. 동사처럼 "어떤 행동을 할지" 
 요청 (Request) — 07 → 08 로 보내는 것
 ┌────────────────────────────────────────┐
 │ POST /db/logs                          │  ← 어디에 (URL + 메서드)
-│ X-API-Key: khj570832!                 │  ← 헤더 (인증 키 등 부가 정보)
+│ X-API-Key: 여기에_비밀번호_입력                 │  ← 헤더 (인증 키 등 부가 정보)
 │                                        │
 │ {                                      │
 │   "user_id": 1,                        │  ← 바디 (실제 보내는 데이터)

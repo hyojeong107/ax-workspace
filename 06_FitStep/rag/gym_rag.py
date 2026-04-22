@@ -2,6 +2,7 @@
 # 사용자가 등록한 헬스장 기구 정보를 벡터 DB에 저장하고 검색합니다
 # RAG_API_URL 환경변수가 설정된 경우 08_Advanced_RAG HTTP API를 사용합니다
 
+from __future__ import annotations
 import os
 from typing import List
 from dotenv import load_dotenv

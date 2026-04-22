@@ -20,7 +20,7 @@ brew services start mysql
 
 # root 비밀번호 설정
 mysql_secure_installation
-# 비밀번호: khj570832!  (기존 .env와 동일하게)
+# 비밀번호: .env 파일의 MYSQL_ROOT_PASSWORD와 동일하게 설정
 ```
 
 ### 4. MySQL DB 생성
@@ -44,6 +44,56 @@ cd ax-workspace
 
 ---
 
+## 가상환경 구조 (Windows vs Mac)
+
+폴더마다 가상환경을 **각자 따로** 가지고 있어요. Windows용(Scripts/)과 Mac용(bin/)이 다르기 때문에 **절대 공유하지 않고 각각 따로 씁니다.**
+
+| 폴더 | Windows 가상환경 | Mac 가상환경 |
+|------|-----------------|-------------|
+| `07_FitStep_Web` | `07_FitStep_Web/venv/Scripts/activate` | `07_FitStep_Web/venv/bin/activate` |
+| `08_FitStep_API` | `08_FitStep_API/venv/Scripts/activate` | `08_FitStep_API/venv/bin/activate` |
+
+### Windows에서 활성화
+```bash
+# 07_FitStep_Web
+cd 07_FitStep_Web
+venv\Scripts\activate
+
+# 08_FitStep_API
+cd 08_FitStep_API
+venv\Scripts\activate
+```
+> `start.bat` (루트 폴더)으로 한 번에 둘 다 실행 가능
+
+### Mac에서 활성화
+```bash
+# 07_FitStep_Web
+cd 07_FitStep_Web
+source venv/bin/activate
+
+# 08_FitStep_API
+cd 08_FitStep_API
+source venv/bin/activate
+```
+
+### 처음 맥 세팅 시 가상환경 새로 만드는 법
+```bash
+# 07_FitStep_Web
+cd ~/ax-workspace/07_FitStep_Web
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# 08_FitStep_API
+cd ~/ax-workspace/08_FitStep_API
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+> Windows에서 만든 venv는 맥에서 안 됨 (반대도 마찬가지). 새로 만들어야 해요.
+
+---
+
 ## API 서버 세팅 (08_FitStep_API)
 
 ### 1. 가상환경 생성 및 패키지 설치
@@ -58,15 +108,15 @@ pip install httpx python-dotenv
 ### 2. .env 파일 확인
 `08_FitStep_API/.env` 파일이 있는지 확인하고, 없으면 아래 내용으로 새로 만들기:
 ```
-OPENAI_API_KEY=REDACTED
-RAG_API_KEY=khj570832!
-MYSQL_ROOT_PASSWORD=khj570832!
+OPENAI_API_KEY=여기에_실제_키_입력
+RAG_API_KEY=여기에_비밀번호_입력
+MYSQL_ROOT_PASSWORD=여기에_비밀번호_입력
 DB_HOST=localhost
 DB_PORT=3306
 DB_USER=root
-DB_PASSWORD=khj570832!
+DB_PASSWORD=여기에_비밀번호_입력
 DB_NAME=fitstep
-RAPIDAPI_KEY=f4fb53b5e0msh572e80979b2b726p1fe91cjsnda237c723240
+RAPIDAPI_KEY=여기에_실제_키_입력
 ```
 
 ### 3. API 서버 실행
@@ -79,7 +129,7 @@ uvicorn app.main:app --reload --port 8000
 ### 4. 운동 목록 동기화 (처음 한 번만)
 서버 실행 후 새 터미널에서:
 ```bash
-curl -X POST "http://localhost:8000/db/exercises/sync" -H "X-API-Key: khj570832!"
+curl -X POST "http://localhost:8000/db/exercises/sync" -H "X-API-Key: [RAG_API_KEY 값]"
 ```
 > `{"synced": 1300}` 같은 응답 오면 성공. 30초 정도 걸림.
 

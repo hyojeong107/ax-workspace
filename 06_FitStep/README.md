@@ -532,7 +532,7 @@ docker compose up -d --build
 
 # 3. .env에 RAG_API_URL 설정 (로컬 실행 시)
 # RAG_API_URL=http://localhost:8000
-# RAG_API_KEY=khj570832!
+# RAG_API_KEY=여기에_비밀번호_입력
 
 # 4. 웹 앱 실행
 streamlit run 07_Streamlit/07-1.Streamlit.py
