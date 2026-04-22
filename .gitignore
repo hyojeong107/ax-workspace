@@ -5,6 +5,8 @@
 env/
 venv/
 **/venv/
+.env
+**/ .env
 
 # Database / Vector store data
 chroma_db/
