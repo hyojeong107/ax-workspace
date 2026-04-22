@@ -48,6 +48,19 @@ from api_client import (
 )
 from rag.gym_rag import has_gym_data, save_gym_to_vector_db, get_gym_profile_from_api
 
+# ── Cached API wrappers (Streamlit 리런마다 재호출 방지) ──────────────────────
+@st.cache_data(ttl=3600)
+def _cached_exercise_list():
+    return api_get_exercise_list()
+
+@st.cache_data(ttl=300)
+def _cached_stats(user_id: int):
+    return api_get_stats(user_id)
+
+@st.cache_data(ttl=60)
+def _cached_has_gym_data(user_id: int):
+    return has_gym_data(user_id)
+
 # ── Page Config ───────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="FitStep · AI 헬스 코치",
@@ -56,250 +69,108 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# ── Global CSS (Pastel Lavender & Health Design) ──────────────────────────────
-st.markdown(
-    """
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+# ── Global CSS (테마 파일에서 로드) ──────────────────────────────────────────
+# .env에서 못 읽는 경우 대비해 직접 재로드
+load_dotenv(os.path.join(_HERE, ".env"), override=True)
+_THEME = os.getenv("FITSTEP_THEME", "lavender")
+print(f"[DEBUG] FITSTEP_THEME={_THEME}, _HERE={_HERE}")
+_THEME_FILE = os.path.join(_HERE, "themes", f"{_THEME}.css")
+try:
+    with open(_THEME_FILE, encoding="utf-8") as _f:
+        _css = _f.read()
+except FileNotFoundError:
+    with open(os.path.join(_HERE, "themes", "lavender.css"), encoding="utf-8") as _f:
+        _css = _f.read()
 
-/* ── Base ── */
-*, *::before, *::after { box-sizing: border-box; }
-html, body, .stApp {
-    font-family: 'Inter', system-ui, sans-serif !important;
-    background: linear-gradient(135deg, #e8e8f8 0%, #f0eef8 30%, #e6f0e8 70%, #eae6f5 100%) !important;
-    background-attachment: fixed !important;
-    color: #1a1a2e !important;
-    min-height: 100vh;
-}
-.stApp { background: linear-gradient(135deg, #e8e8f8 0%, #f0eef8 30%, #e6f0e8 70%, #eae6f5 100%) !important; }
-#MainMenu, footer, header, .stDeployButton { display: none !important; }
-section[data-testid="stSidebar"] { display: none !important; }
+st.markdown(f"<style>{_css}</style>", unsafe_allow_html=True)
 
-/* ── Buttons ── */
-.stButton > button {
-    background: linear-gradient(135deg, #2d2d6b 0%, #4a3880 100%) !important;
-    color: #ffffff !important;
-    border: none !important;
-    border-radius: 12px !important;
-    font-weight: 600 !important;
-    width: 100% !important;
-    padding: 0.65rem 1.4rem !important;
-    letter-spacing: 0.01em;
-    font-size: 0.95rem !important;
-    transition: all 0.2s ease;
-    box-shadow: 0 4px 15px rgba(45, 45, 107, 0.25) !important;
-}
-.stButton > button:hover {
-    transform: translateY(-1px) !important;
-    box-shadow: 0 6px 20px rgba(45, 45, 107, 0.35) !important;
-    opacity: 1 !important;
-}
-.stButton > button:focus { outline: 2px solid #7b68c8 !important; outline-offset: 2px; }
-
-/* outline button — wrap in <div class="btn-outline"> */
-.btn-outline .stButton > button {
-    background: rgba(255, 255, 255, 0.7) !important;
-    color: #2d2d6b !important;
-    border: 1.5px solid #2d2d6b !important;
-    box-shadow: 0 2px 8px rgba(45, 45, 107, 0.12) !important;
-}
-.btn-outline .stButton > button:hover {
-    background: rgba(255, 255, 255, 0.9) !important;
-}
-
-/* ── Inputs ── */
-.stTextInput input,
-.stNumberInput input,
-.stTextArea textarea {
-    border: 1.5px solid rgba(123, 104, 200, 0.35) !important;
-    border-radius: 10px !important;
-    background: rgba(255, 255, 255, 0.75) !important;
-    color: #1a1a2e !important;
-    backdrop-filter: blur(8px);
-    transition: border-color 0.2s;
-}
-.stTextInput input:focus,
-.stNumberInput input:focus,
-.stTextArea textarea:focus {
-    border-color: #7b68c8 !important;
-    box-shadow: 0 0 0 3px rgba(123, 104, 200, 0.15) !important;
-}
-.stSelectbox [data-baseweb="select"],
-.stMultiSelect [data-baseweb="select"] {
-    border: 1.5px solid rgba(123, 104, 200, 0.35) !important;
-    border-radius: 10px !important;
-    background: rgba(255, 255, 255, 0.75) !important;
-}
-
-/* ── Cards ── */
-.card {
-    border: 1px solid rgba(255, 255, 255, 0.7);
-    border-radius: 16px;
-    padding: 1.4rem 1.6rem;
-    background: rgba(255, 255, 255, 0.65);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    margin-bottom: 0.6rem;
-    box-shadow: 0 4px 20px rgba(45, 45, 107, 0.08);
-    transition: transform 0.2s, box-shadow 0.2s;
-}
-.card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 28px rgba(45, 45, 107, 0.14);
-}
-.card-soft {
-    border: 1px solid rgba(255, 255, 255, 0.6);
-    border-radius: 14px;
-    padding: 1.2rem 1.4rem;
-    background: rgba(255, 255, 255, 0.5);
-    backdrop-filter: blur(8px);
-    margin-bottom: 0.5rem;
-    box-shadow: 0 2px 12px rgba(45, 45, 107, 0.06);
-}
-.ex-card {
-    border: 1px solid rgba(255, 255, 255, 0.65);
-    border-left: 4px solid #7b68c8;
-    border-radius: 12px;
-    padding: 1rem 1.3rem;
-    background: rgba(255, 255, 255, 0.6);
-    backdrop-filter: blur(10px);
-    margin-bottom: 0.75rem;
-    box-shadow: 0 3px 14px rgba(45, 45, 107, 0.08);
-}
-.stat-box {
-    border: 1px solid rgba(255, 255, 255, 0.8);
-    border-radius: 16px;
-    padding: 1.4rem 0.8rem;
-    text-align: center;
-    background: rgba(255, 255, 255, 0.7);
-    backdrop-filter: blur(12px);
-    box-shadow: 0 4px 20px rgba(45, 45, 107, 0.1);
-}
-.stat-num {
-    font-size: 2.2rem;
-    font-weight: 800;
-    line-height: 1.1;
-    background: linear-gradient(135deg, #2d2d6b, #7b68c8);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-}
-.stat-lbl {
-    font-size: 0.72rem;
-    color: #6b6b8a;
-    text-transform: uppercase;
-    letter-spacing: 0.09em;
-    margin-top: 5px;
-    font-weight: 500;
-}
-
-/* ── AI bubble ── */
-.ai-bubble {
-    background: linear-gradient(135deg, rgba(230, 225, 248, 0.85), rgba(220, 235, 222, 0.85));
-    border: 1px solid rgba(255, 255, 255, 0.8);
-    border-radius: 16px 16px 16px 4px;
-    padding: 1.1rem 1.4rem;
-    color: #1a1a2e;
-    margin: 0.3rem 0 1.2rem;
-    font-size: 0.95rem;
-    line-height: 1.7;
-    backdrop-filter: blur(8px);
-    box-shadow: 0 3px 16px rgba(123, 104, 200, 0.12);
-}
-
-/* ── Badges ── */
-.badge {
-    display: inline-block;
-    background: linear-gradient(135deg, #2d2d6b, #4a3880);
-    color: #ffffff;
-    border-radius: 6px;
-    padding: 3px 10px;
-    font-size: 0.72rem;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    box-shadow: 0 2px 6px rgba(45, 45, 107, 0.25);
-}
-.badge-gray {
-    display: inline-block;
-    background: rgba(255, 255, 255, 0.65);
-    color: #4a4a6a;
-    border: 1px solid rgba(123, 104, 200, 0.25);
-    border-radius: 6px;
-    padding: 3px 10px;
-    font-size: 0.72rem;
-    font-weight: 500;
-}
-.badge-outline {
-    display: inline-block;
-    background: transparent;
-    border: 1.5px solid #7b68c8;
-    color: #4a3880;
-    border-radius: 6px;
-    padding: 3px 10px;
-    font-size: 0.72rem;
-    font-weight: 500;
-}
-
-/* ── Divider ── */
-.divider { border-top: 1px solid rgba(123, 104, 200, 0.2); margin: 1.4rem 0; }
-
-/* ── Table ── */
-.dataframe thead tr th {
-    background: linear-gradient(135deg, #2d2d6b, #4a3880) !important;
-    color: #ffffff !important;
-}
-.dataframe tbody tr:hover { background: rgba(123, 104, 200, 0.07) !important; }
-
-/* ── Form container ── */
-[data-testid="stForm"] {
-    border: 1px solid rgba(123, 104, 200, 0.25);
-    border-radius: 16px;
-    padding: 1.4rem;
-    background: rgba(255, 255, 255, 0.5);
-    backdrop-filter: blur(10px);
-}
-
-/* ── Progress bar ── */
-.stProgress > div > div > div {
-    background: linear-gradient(90deg, #7b68c8, #4a9b7f) !important;
-    border-radius: 4px;
-}
-
-/* ── Spinner ── */
-.stSpinner > div { border-top-color: #7b68c8 !important; }
-
-/* ── Info / warning / success overrides ── */
-[data-testid="stAlert"] {
-    border-radius: 12px;
-    backdrop-filter: blur(8px);
-    background: rgba(255, 255, 255, 0.6) !important;
-}
-
-/* ── Expander ── */
-[data-testid="stExpander"] {
-    border: 1px solid rgba(123, 104, 200, 0.2) !important;
-    border-radius: 12px !important;
-    background: rgba(255, 255, 255, 0.5) !important;
-    backdrop-filter: blur(8px);
-}
-
-/* ── Block container ── */
-.block-container {
-    padding-top: 2rem !important;
-}
-
-/* ── Dataframe ── */
-[data-testid="stDataFrame"] {
-    border-radius: 12px !important;
-    overflow: hidden;
-    border: 1px solid rgba(123, 104, 200, 0.15) !important;
-    background: rgba(255,255,255,0.6) !important;
-}
-</style>
-""",
-    unsafe_allow_html=True,
-)
-
+# ── Theme Colors (인라인 스타일용) ────────────────────────────────────────────
+if _THEME == "health":
+    _C = {
+        "primary":    "#1c1c2e",
+        "accent":     "#4ecb9e",
+        "secondary":  "#2a9d74",
+        "primary2":   "#2a9d74",
+        "text_sub":   "#8a8fa8",
+        "text_dim":   "#6b7280",
+        "bg_card":    "#ffffff",
+        "bg_light":   "#f4f5fb",
+        "border":     "rgba(228,230,240,0.8)",
+        "shadow":     "rgba(28,28,46,0.08)",
+        "shadow2":    "rgba(28,28,46,0.12)",
+        "chip_done_bg":    "#1c1c2e",
+        "chip_cur_border": "#4ecb9e",
+        "chip_cur_color":  "#1c1c2e",
+        "chip_none_border":"rgba(212,214,224,0.6)",
+        "chip_none_color": "#9b9bb8",
+        "heat_high":  "#1c1c2e",
+        "heat_low":   "#4ecb9e",
+        "heat_none":  "rgba(28,28,46,0.08)",
+        "heat_legend": "미활동 &nbsp; ■ 민트: 1–2회 &nbsp; ■ 다크: 3회 이상",
+        "tip_bg":     "linear-gradient(135deg, rgba(78,203,158,0.13) 0%, rgba(42,157,116,0.10) 100%)",
+        "tip_border": "#4ecb9e",
+        "tip_label":  "#2a9d74",
+        "goal_color": "#4ecb9e",
+        "stat_grad":  "linear-gradient(135deg,#1c1c2e,#4ecb9e)",
+        "reps_grad":  "linear-gradient(135deg,#2a9d74,#1a7a58)",
+        "logo_grad":  "linear-gradient(135deg, #1c1c2e, #4ecb9e)",
+        "header_grad":"linear-gradient(135deg, #1c1c2e, #4ecb9e)",
+        "user_card_bg":"rgba(255,255,255,0.95)",
+        "user_card_border":"rgba(228,230,240,0.8)",
+        "user_avatar_grad":"linear-gradient(135deg, #1c1c2e, #4ecb9e)",
+        "avatar_shadow":"rgba(28,28,46,0.2)",
+        "bar_cs":     [[0,"#b8e8d8"],[0.5,"#4ecb9e"],[1,"#1c1c2e"]],
+        "grid_color": "rgba(28,28,46,0.06)",
+        "complete_bg":"linear-gradient(135deg, rgba(212,238,218,0.9), rgba(255,255,255,0.9))",
+        "complete_border":"rgba(228,230,240,0.8)",
+        "complete_shadow":"rgba(28,28,46,0.08)",
+        "log_card_bg":"linear-gradient(135deg, rgba(212,238,218,0.6), rgba(255,255,255,0.8))",
+        "badge_grad": "linear-gradient(135deg,#1c1c2e,#4ecb9e)",
+        "badge_shadow":"rgba(28,28,46,0.2)",
+    }
+else:
+    _C = {
+        "primary":    "#2d2d6b",
+        "accent":     "#7b68c8",
+        "secondary":  "#4a3880",
+        "primary2":   "#4a3880",
+        "text_sub":   "#6b6b8a",
+        "text_dim":   "#6b6b8a",
+        "bg_card":    "rgba(255,255,255,0.65)",
+        "bg_light":   "rgba(255,255,255,0.5)",
+        "border":     "rgba(255,255,255,0.8)",
+        "shadow":     "rgba(45,45,107,0.08)",
+        "shadow2":    "rgba(45,45,107,0.12)",
+        "chip_done_bg":    "linear-gradient(135deg,#2d2d6b,#7b68c8)",
+        "chip_cur_border": "#7b68c8",
+        "chip_cur_color":  "#2d2d6b",
+        "chip_none_border":"rgba(123,104,200,0.2)",
+        "chip_none_color": "#9b9bb8",
+        "heat_high":  "#2d2d6b",
+        "heat_low":   "#7b68c8",
+        "heat_none":  "rgba(123,104,200,0.12)",
+        "heat_legend": "미활동 &nbsp; ■ 연보라: 1–2회 &nbsp; ■ 진보라: 3회 이상",
+        "tip_bg":     "linear-gradient(135deg, rgba(123,104,200,0.18) 0%, rgba(74,152,127,0.13) 100%)",
+        "tip_border": "#7b68c8",
+        "tip_label":  "#7b68c8",
+        "goal_color": "#7b68c8",
+        "stat_grad":  "linear-gradient(135deg,#2d2d6b,#7b68c8)",
+        "reps_grad":  "linear-gradient(135deg,#4a9b7f,#2d7a60)",
+        "logo_grad":  "linear-gradient(135deg, #2d2d6b, #7b68c8)",
+        "header_grad":"linear-gradient(135deg, #2d2d6b, #7b68c8)",
+        "user_card_bg":"rgba(255,255,255,0.6)",
+        "user_card_border":"rgba(255,255,255,0.8)",
+        "user_avatar_grad":"linear-gradient(135deg, #2d2d6b, #7b68c8)",
+        "avatar_shadow":"rgba(45,45,107,0.3)",
+        "bar_cs":     [[0,"#c8b8e8"],[0.5,"#7b68c8"],[1,"#2d2d6b"]],
+        "grid_color": "rgba(123,104,200,0.12)",
+        "complete_bg":"linear-gradient(135deg, rgba(232,228,248,0.8), rgba(212,238,218,0.8))",
+        "complete_border":"rgba(255,255,255,0.8)",
+        "complete_shadow":"rgba(45,45,107,0.12)",
+        "log_card_bg":"linear-gradient(135deg, rgba(232,228,248,0.75), rgba(255,255,255,0.65))",
+        "badge_grad": "linear-gradient(135deg,#2d2d6b,#7b68c8)",
+        "badge_shadow":"rgba(45,45,107,0.25)",
+    }
 
 # ── Session State Init ─────────────────────────────────────────────────────────
 _DEFAULTS = {
@@ -333,12 +204,12 @@ def nav(page: str):
 # ── UI Helpers ────────────────────────────────────────────────────────────────
 def _header(title: str, subtitle: str = ""):
     st.markdown(
-        f"<h1 style='margin-bottom:0; letter-spacing:-0.03em; background: linear-gradient(135deg, #2d2d6b, #7b68c8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;'>{title}</h1>",
+        f"<h1 style='margin-bottom:0; letter-spacing:-0.03em; background: {_C['header_grad']}; -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;'>{title}</h1>",
         unsafe_allow_html=True,
     )
     if subtitle:
         st.markdown(
-            f"<p style='color:#6b6b8a; margin-top:3px; font-size:0.95rem; font-weight:500'>{subtitle}</p>",
+            f"<p style='color:{_C['text_sub']}; margin-top:3px; font-size:0.95rem; font-weight:500'>{subtitle}</p>",
             unsafe_allow_html=True,
         )
     st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
@@ -378,15 +249,15 @@ def page_login():
 
         # ── 로고 ──
         st.markdown(
-            """
+            f"""
             <div style='text-align:center; padding:2rem 0 1.8rem'>
-                <div style='width:72px; height:72px; background:linear-gradient(135deg, #2d2d6b, #7b68c8);
+                <div style='width:72px; height:72px; background:{_C['logo_grad']};
                             border-radius:20px; display:flex; align-items:center; justify-content:center;
-                            margin:0 auto 1rem; box-shadow:0 8px 24px rgba(45,45,107,0.3); font-size:2rem;'>💪</div>
+                            margin:0 auto 1rem; box-shadow:0 8px 24px {_C['avatar_shadow']}; font-size:2rem;'>💪</div>
                 <h1 style='font-size:2.8rem; letter-spacing:-0.05em; margin:6px 0 0;
-                           background:linear-gradient(135deg, #2d2d6b, #7b68c8);
+                           background:{_C['logo_grad']};
                            -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;'>FitStep</h1>
-                <p style='color:#6b6b8a; margin:6px 0 0; font-size:0.95rem; font-weight:500'>나만의 AI 헬스 코치</p>
+                <p style='color:{_C['text_sub']}; margin:6px 0 0; font-size:0.95rem; font-weight:500'>나만의 AI 헬스 코치</p>
             </div>
             """,
             unsafe_allow_html=True,
@@ -537,19 +408,19 @@ def page_menu():
         st.markdown(
             f"""
             <div style='display:flex; align-items:center; gap:1rem; margin-bottom:0.8rem;
-                        background:rgba(255,255,255,0.6); border-radius:16px; padding:1rem 1.2rem;
-                        border:1px solid rgba(255,255,255,0.8); backdrop-filter:blur(10px);
-                        box-shadow:0 4px 20px rgba(45,45,107,0.08);'>
+                        background:{_C['user_card_bg']}; border-radius:16px; padding:1rem 1.2rem;
+                        border:1px solid {_C['user_card_border']};
+                        box-shadow:0 4px 20px {_C['shadow']};'>
                 <div style='width:52px; height:52px;
-                            background:linear-gradient(135deg, #2d2d6b, #7b68c8);
+                            background:{_C['user_avatar_grad']};
                             border-radius:50%; display:flex; align-items:center; justify-content:center;
                             color:#fff; font-size:1.3rem; font-weight:700; flex-shrink:0;
-                            box-shadow:0 4px 12px rgba(45,45,107,0.3);'>
+                            box-shadow:0 4px 12px {_C['avatar_shadow']};'>
                     {user['name'][0]}
                 </div>
                 <div>
                     <div style='font-size:1.2rem; font-weight:700; color:#1a1a2e; line-height:1.2'>{user['name']}</div>
-                    <div style='font-size:0.82rem; color:#6b6b8a; margin-top:3px; font-weight:500'>
+                    <div style='font-size:0.82rem; color:{_C['text_sub']}; margin-top:3px; font-weight:500'>
                         {fitness_label} &nbsp;·&nbsp; {user.get('goal', '')}
                     </div>
                 </div>
@@ -558,7 +429,7 @@ def page_menu():
             unsafe_allow_html=True,
         )
 
-        if not has_gym_data(uid):
+        if not _cached_has_gym_data(uid):
             st.warning(
                 "⚠  헬스장 기구 정보가 없습니다. 메뉴 4번에서 등록하면 AI가 더 정확한 루틴을 추천해드려요."
             )
@@ -654,6 +525,12 @@ def _build_routine_prompt(user: dict, progression_context: str, gym_context: str
 6. name 필드는 반드시 한국어로 작성하세요. name_en을 그대로 복사하면 절대 안 됩니다.
    - name: 한국어 운동명 (예: "바벨 벤치프레스", "랫풀다운", "레그 컬")
    - name_en: 영문 운동명, 위 목록에서 정확히 복사
+7. tip 필드는 반드시 초보자가 자세를 처음 배운다고 가정하고 아래 내용을 모두 포함해 4~6문장으로 작성하세요.
+   - 시작 전 준비 자세 (그립/발 위치/등받이 각도 등 구체적 수치 포함)
+   - 동작 수행 순서 (어디를 먼저 움직이는지 단계별로)
+   - 호흡법 (언제 들이쉬고 내쉬는지)
+   - 초보자가 자주 하는 실수와 교정 방법
+   절대로 한 문장으로 요약하지 마세요.
 
 [유산소 운동 전용 규칙]
 - sets/reps/weight_kg 필드를 사용하지 말고, duration_min(분), speed_kmh(속도 km/h, 해당 없으면 0), incline_pct(경사도%, 해당 없으면 0)을 사용하세요.
@@ -671,7 +548,7 @@ def _build_routine_prompt(user: dict, progression_context: str, gym_context: str
       "sets": 3,
       "reps": 12,
       "weight_kg": 40.0,
-      "tip": "자세 또는 주의사항 한 줄"
+      "tip": "벤치에 누워 어깨뼈를 모아 가슴을 살짝 들어올린 뒤 바벨을 어깨너비보다 약간 넓게 잡으세요. 바를 가슴 중앙(젖꼭지 라인)으로 천천히 내리며 이때 숨을 들이쉬고, 밀어올릴 때 크게 내쉬세요. 팔꿈치가 90도 이상 벌어지지 않도록 약간 안쪽으로 유지하면 어깨 부담을 줄일 수 있습니다. 초보자가 가장 많이 하는 실수는 엉덩이를 벤치에서 띄우거나 손목을 꺾는 것인데, 엉덩이는 항상 벤치에 밀착하고 손목은 곧게 펴야 합니다."
     }},
     {{
       "name": "런닝머신",
@@ -737,7 +614,7 @@ def recommend_routine(user: dict, force_new: bool = False) -> dict:
     from rag.gym_rag import retrieve_gym_context
     gym_context = retrieve_gym_context(user["id"])
 
-    exercise_list = api_get_exercise_list()
+    exercise_list = _cached_exercise_list()
     prompt = _build_routine_prompt(user, progression_context, gym_context, exercise_list)
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     response = client.chat.completions.create(
@@ -813,15 +690,10 @@ def page_recommend():
         st.markdown("**근육 부위 분포**")
         cat_series = pd.Series(categories).value_counts()
         if not cat_series.empty:
-            colors = [
-                "#7b68c8",
-                "#4a9b7f",
-                "#2d2d6b",
-                "#a88fd4",
-                "#6bbfa0",
-                "#4a3880",
-                "#c8b8e8",
-            ]
+            if _THEME == "health":
+                colors = ["#4ecb9e","#1c1c2e","#2a9d74","#a8e8d0","#6bbfa0","#38b2f5","#b8e8d8"]
+            else:
+                colors = ["#7b68c8","#4a9b7f","#2d2d6b","#a88fd4","#6bbfa0","#4a3880","#c8b8e8"]
             fig_pie = go.Figure(
                 go.Pie(
                     labels=cat_series.index.tolist(),
@@ -859,7 +731,7 @@ def page_recommend():
                 orientation="h",
                 marker=dict(
                     color=volumes,
-                    colorscale=[[0, "#c8b8e8"], [0.5, "#7b68c8"], [1, "#2d2d6b"]],
+                    colorscale=_C["bar_cs"],
                     showscale=False,
                 ),
                 text=[f"{v}회" for v in volumes],
@@ -872,7 +744,7 @@ def page_recommend():
             height=max(200, len(exercises) * 42),
             xaxis=dict(
                 showgrid=True,
-                gridcolor="rgba(123,104,200,0.12)",
+                gridcolor=_C["grid_color"],
                 zeroline=False,
                 title=dict(text="총 볼륨 (세트×횟수)", font=dict(size=11)),
             ),
@@ -910,12 +782,12 @@ def page_recommend():
                 f"""
                 <div class='ex-card'>
                     <div style='display:flex; align-items:center; gap:6px; margin-bottom:5px'>
-                        <span style='background:linear-gradient(135deg,#2d2d6b,#7b68c8); color:#fff; border-radius:6px;
+                        <span style='background:{_C['badge_grad']}; color:#fff; border-radius:6px;
                                      padding:2px 9px; font-size:0.75rem; font-weight:700;
-                                     box-shadow:0 2px 6px rgba(45,45,107,0.25);'>{i+1}</span>
+                                     box-shadow:0 2px 6px {_C['badge_shadow']};'>{i+1}</span>
                         {_badge(ex.get("category", ""), "gray")}
                     </div>
-                    <div style='font-size:0.8rem; color:#6b6b8a; margin-bottom:6px; font-weight:500'>원하는 유산소 운동을 선택하세요</div>
+                    <div style='font-size:0.8rem; color:{_C['text_sub']}; margin-bottom:6px; font-weight:500'>원하는 유산소 운동을 선택하세요</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -951,9 +823,9 @@ def page_recommend():
             st.markdown(
                 f"""
                 <div style='display:flex; align-items:center; gap:8px; margin-bottom:10px; margin-top:20px'>
-                    <span style='background:linear-gradient(135deg,#2d2d6b,#7b68c8); color:#fff; border-radius:6px;
+                    <span style='background:{_C['badge_grad']}; color:#fff; border-radius:6px;
                                  padding:2px 9px; font-size:0.75rem; font-weight:700;
-                                 box-shadow:0 2px 6px rgba(45,45,107,0.25);'>{i+1}</span>
+                                 box-shadow:0 2px 6px {_C['badge_shadow']};'>{i+1}</span>
                     {_badge(ex.get("category", ""), "gray")}
                     <span style='font-size:1.1rem; font-weight:700; color:#1a1a2e; margin-left:4px'>{name_kr}</span>
                 </div>
@@ -970,19 +842,46 @@ def page_recommend():
             
             with col2:
                 if ex.get("category") == "유산소":
-                    aerobic_info = f"`{ex.get('duration_min', '-')}분`"
-                    if ex.get("speed_kmh", 0):
-                        aerobic_info += f"  속도: `{ex.get('speed_kmh')} km/h`"
-                    if ex.get("incline_pct", 0):
-                        aerobic_info += f"  경사: `{ex.get('incline_pct')}%`"
-                    st.markdown(f"🎯 **목표:** {aerobic_info}", unsafe_allow_html=True)
+                    duration = ex.get('duration_min', '-')
+                    speed = ex.get('speed_kmh', 0)
+                    incline = ex.get('incline_pct', 0)
+                    extra = ""
+                    if speed:
+                        extra += f"&nbsp;&nbsp;<span style='color:#6b6b8a; font-size:15px;'>속도 <b>{speed} km/h</b></span>"
+                    if incline:
+                        extra += f"&nbsp;&nbsp;<span style='color:#6b6b8a; font-size:15px;'>경사 <b>{incline}%</b></span>"
+                    st.markdown(f"""
+<div style="display:flex; align-items:center; gap:10px; margin-bottom:6px;">
+  <span style="font-size:22px;">🎯</span>
+  <span style="font-size:13px; font-weight:700; color:{_C['goal_color']}; letter-spacing:0.05em;">목표</span>
+  <span style="font-size:20px; font-weight:800; color:{_C['primary']};">{duration}분</span>
+  {extra}
+</div>""", unsafe_allow_html=True)
                 else:
-                    st.markdown(
-                        f"🎯 **목표:** `{ex.get('sets', 3)} Set` × `{ex.get('reps', 12)} Reps` &nbsp;  <span style='color:#777;'>({weight_str})</span>",
-                        unsafe_allow_html=True
-                    )
+                    st.markdown(f"""
+<div style="display:flex; align-items:center; gap:10px; margin-bottom:6px;">
+  <span style="font-size:22px;">🎯</span>
+  <span style="font-size:13px; font-weight:700; color:{_C['goal_color']}; letter-spacing:0.05em;">목표</span>
+  <span style="font-size:20px; font-weight:800; color:{_C['primary']};">{ex.get('sets', 3)} Set &nbsp;×&nbsp; {ex.get('reps', 12)} Reps</span>
+  <span style="font-size:15px; color:{_C['text_sub']}; font-weight:500;">({weight_str})</span>
+</div>""", unsafe_allow_html=True)
                 if ex.get("tip"):
-                    st.info(f"💡 **AI Coach Tip:** {ex.get('tip')}")
+                    st.markdown(f"""
+<div style="
+    margin-top: 16px;
+    padding: 18px 22px;
+    background: {_C['tip_bg']};
+    border-left: 4px solid {_C['tip_border']};
+    border-radius: 14px;
+    display: flex; align-items: flex-start; gap: 14px;
+">
+    <span style="font-size:26px; line-height:1.3; flex-shrink:0;">✨</span>
+    <div>
+        <span style="font-size:12px; font-weight:800; color:{_C['tip_label']}; letter-spacing:0.08em; text-transform:uppercase;">AI Coach Tip</span><br>
+        <span style="font-size:15px; color:{_C['primary']}; line-height:1.8; font-weight:500;">{ex.get('tip')}</span>
+    </div>
+</div>
+""", unsafe_allow_html=True)
                 
             st.divider()
 
@@ -1053,11 +952,11 @@ def page_log():
         is_done = ex["name"] in logged
         is_current = i == idx and not is_done
         if is_done:
-            chip_html += f"<span style='background:linear-gradient(135deg,#2d2d6b,#7b68c8); color:#fff; border-radius:20px; padding:5px 14px; font-size:0.8rem; font-weight:600; box-shadow:0 2px 8px rgba(45,45,107,0.25);'>✓ {ex['name']}</span>"
+            chip_html += f"<span style='background:{_C['chip_done_bg']}; color:#fff; border-radius:20px; padding:5px 14px; font-size:0.8rem; font-weight:600; box-shadow:0 2px 8px {_C['badge_shadow']};'>✓ {ex['name']}</span>"
         elif is_current:
-            chip_html += f"<span style='background:rgba(255,255,255,0.85); color:#2d2d6b; border:2px solid #7b68c8; border-radius:20px; padding:5px 14px; font-size:0.8rem; font-weight:700; box-shadow:0 2px 10px rgba(123,104,200,0.2);'>{ex['name']}</span>"
+            chip_html += f"<span style='background:rgba(255,255,255,0.95); color:{_C['chip_cur_color']}; border:2px solid {_C['chip_cur_border']}; border-radius:20px; padding:5px 14px; font-size:0.8rem; font-weight:700; box-shadow:0 2px 10px {_C['shadow2']};'>{ex['name']}</span>"
         else:
-            chip_html += f"<span style='background:rgba(255,255,255,0.45); color:#9b9bb8; border:1px solid rgba(123,104,200,0.2); border-radius:20px; padding:5px 14px; font-size:0.8rem; font-weight:400;'>{ex['name']}</span>"
+            chip_html += f"<span style='background:rgba(255,255,255,0.45); color:{_C['chip_none_color']}; border:1px solid {_C['chip_none_border']}; border-radius:20px; padding:5px 14px; font-size:0.8rem; font-weight:400;'>{ex['name']}</span>"
     chip_html += "</div>"
     st.markdown(chip_html, unsafe_allow_html=True)
 
@@ -1072,16 +971,16 @@ def page_log():
             api_complete_routine(routine_id)
 
         st.markdown(
-            """
+            f"""
             <div style='text-align:center; padding:2.5rem 1rem;
-                        background:linear-gradient(135deg, rgba(232,228,248,0.8), rgba(212,238,218,0.8));
-                        border-radius:20px; border:1px solid rgba(255,255,255,0.8);
-                        backdrop-filter:blur(10px); box-shadow:0 8px 32px rgba(45,45,107,0.12);'>
+                        background:{_C['complete_bg']};
+                        border-radius:20px; border:1px solid {_C['complete_border']};
+                        box-shadow:0 8px 32px {_C['complete_shadow']};'>
                 <div style='font-size:3.5rem; margin-bottom:0.5rem'>🎉</div>
-                <h2 style='margin-top:0; background:linear-gradient(135deg,#2d2d6b,#7b68c8);
+                <h2 style='margin-top:0; background:{_C['stat_grad']};
                            -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;'>
                     오늘의 운동 완료!</h2>
-                <p style='color:#6b6b8a; font-weight:500'>모든 운동을 기록했습니다. 수고하셨어요!</p>
+                <p style='color:{_C['text_sub']}; font-weight:500'>모든 운동을 기록했습니다. 수고하셨어요!</p>
             </div>
             """,
             unsafe_allow_html=True,
@@ -1116,26 +1015,26 @@ def page_log():
 
     st.markdown(
         f"""
-        <div class='card' style='margin-bottom:1rem; background:linear-gradient(135deg, rgba(232,228,248,0.75), rgba(255,255,255,0.65));'>
+        <div class='card' style='margin-bottom:1rem; background:{_C['log_card_bg']};'>
             <div style='margin-bottom:0.6rem; display:flex; align-items:center; gap:8px;'>
                 {_badge(ex.get("category", ""), "gray")}
-                <span style='font-size:0.8rem; color:#9b9bb8; font-weight:500'>{idx+1} / {total}</span>
+                <span style='font-size:0.8rem; color:{_C['chip_none_color']}; font-weight:500'>{idx+1} / {total}</span>
             </div>
             <h2 style='margin:0 0 5px; font-size:1.6rem; color:#1a1a2e;'>{ex['name']}</h2>
-            <p style='color:#6b6b8a; margin:0 0 1rem; font-size:0.9rem; line-height:1.6'>{ex.get('tip','')}</p>
+            <p style='color:{_C['text_sub']}; margin:0 0 1rem; font-size:0.9rem; line-height:1.6'>{ex.get('tip','')}</p>
             <div style='display:flex; gap:2rem'>
                 <div>
-                    <span style='font-size:1.6rem; font-weight:800; background:linear-gradient(135deg,#2d2d6b,#7b68c8);
+                    <span style='font-size:1.6rem; font-weight:800; background:{_C['stat_grad']};
                                  -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;'>{ex.get("sets", 3)}</span>
-                    <span style='color:#6b6b8a; font-size:0.85rem; font-weight:500'> 세트 목표</span>
+                    <span style='color:{_C['text_sub']}; font-size:0.85rem; font-weight:500'> 세트 목표</span>
                 </div>
                 <div>
-                    <span style='font-size:1.6rem; font-weight:800; background:linear-gradient(135deg,#4a9b7f,#2d7a60);
+                    <span style='font-size:1.6rem; font-weight:800; background:{_C['reps_grad']};
                                  -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;'>{ex.get("reps", 12)}</span>
-                    <span style='color:#6b6b8a; font-size:0.85rem; font-weight:500'> 회 목표</span>
+                    <span style='color:{_C['text_sub']}; font-size:0.85rem; font-weight:500'> 회 목표</span>
                 </div>
                 <div>
-                    <span style='font-size:1.2rem; font-weight:600; color:#6b6b8a'>{weight_hint}</span>
+                    <span style='font-size:1.2rem; font-weight:600; color:{_C['text_sub']}'>{weight_hint}</span>
                 </div>
             </div>
         </div>
@@ -1183,7 +1082,7 @@ def page_dashboard():
     _back_btn()
 
     # ── 통계 카드 ──
-    stats = api_get_stats(uid)
+    stats = _cached_stats(uid)
     c1, c2, c3, c4 = st.columns(4)
     for col, num, label in [
         (c1, stats.get("completed_routines", 0), "완료한 루틴"),

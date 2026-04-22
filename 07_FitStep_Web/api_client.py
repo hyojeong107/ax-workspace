@@ -68,8 +68,8 @@ def api_get_all_users():
     return _get("/db/users")
 
 def api_username_exists(username):
-    users = api_get_all_users()
-    return any(u["username"] == username for u in users)
+    res = _get("/db/users/exists", username=username)
+    return res.get("exists", False)
 
 def api_update_weight(user_id, weight_kg):
     return _patch(f"/db/users/{user_id}/weight", {"weight_kg": weight_kg})

@@ -89,6 +89,16 @@ def get_all_users():
     return users
 
 
+@router.get("/users/exists")
+def username_exists(username: str = Query(...)):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM users WHERE username = %s", (username,))
+    found = cursor.fetchone() is not None
+    cursor.close(); conn.close()
+    return {"exists": found}
+
+
 @router.patch("/users/{user_id}/weight")
 def update_weight(user_id: int, body: UserWeightUpdate):
     conn = get_connection()

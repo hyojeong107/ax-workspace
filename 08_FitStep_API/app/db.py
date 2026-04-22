@@ -2,20 +2,32 @@
 
 import os
 import mysql.connector
+from mysql.connector.pooling import MySQLConnectionPool
 from dotenv import load_dotenv
 
 load_dotenv()
 
+_pool: MySQLConnectionPool | None = None
+
+
+def _get_pool() -> MySQLConnectionPool:
+    global _pool
+    if _pool is None:
+        _pool = MySQLConnectionPool(
+            pool_name="fitstep_pool",
+            pool_size=10,
+            host=os.getenv("DB_HOST", "mysql"),
+            port=int(os.getenv("DB_PORT", 3306)),
+            user=os.getenv("DB_USER", "root"),
+            password=os.getenv("DB_PASSWORD", ""),
+            database=os.getenv("DB_NAME", "fitstep"),
+            charset="utf8mb4",
+        )
+    return _pool
+
 
 def get_connection():
-    return mysql.connector.connect(
-        host=os.getenv("DB_HOST", "mysql"),
-        port=int(os.getenv("DB_PORT", 3306)),
-        user=os.getenv("DB_USER", "root"),
-        password=os.getenv("DB_PASSWORD", ""),
-        database=os.getenv("DB_NAME", "fitstep"),
-        charset="utf8mb4",
-    )
+    return _get_pool().get_connection()
 
 
 def init_db():
@@ -35,7 +47,14 @@ def init_db():
     cur.close()
     base.close()
 
-    conn = get_connection()
+    conn = mysql.connector.connect(
+        host=os.getenv("DB_HOST", "mysql"),
+        port=int(os.getenv("DB_PORT", 3306)),
+        user=os.getenv("DB_USER", "root"),
+        password=os.getenv("DB_PASSWORD", ""),
+        database=os.getenv("DB_NAME", "fitstep"),
+        charset="utf8mb4",
+    )
     cursor = conn.cursor()
 
     cursor.execute("""
@@ -104,6 +123,17 @@ def init_db():
     ]:
         try:
             cursor.execute(f"ALTER TABLE exercises ADD COLUMN {col} {definition}")
+        except Exception:
+            pass
+
+    # 성능 인덱스 — 이미 존재하면 조용히 무시
+    for idx_sql in [
+        "CREATE INDEX idx_wl_user_logged ON workout_logs(user_id, logged_at)",
+        "CREATE INDEX idx_wl_user_exercise ON workout_logs(user_id, exercise_name)",
+        "CREATE INDEX idx_rt_user_date ON routines(user_id, routine_date)",
+    ]:
+        try:
+            cursor.execute(idx_sql)
         except Exception:
             pass
 
