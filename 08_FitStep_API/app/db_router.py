@@ -8,7 +8,7 @@ from app.db import get_connection
 from app.db_schemas import (
     UserCreate, UserLogin, UserOut, UserWeightUpdate,
     RoutineSave, RoutineOut,
-    LogSave, LogOut,
+    LogSave,
 )
 import httpx
 from urllib.parse import quote
@@ -332,7 +332,7 @@ def get_exercise_history(user_id: int, exercise_name: str, limit: int = 5):
 
 @router.post("/exercises/sync")
 async def sync_exercises():
-    """RapidAPI ExerciseDB에서 전체 운동 목록을 가져와 DB에 upsert"""
+    """RapidAPI ExerciseDB 전체 운동 목록을 페이지네이션으로 가져와 DB에 upsert (exercise_id 포함)"""
     rapidapi_key = os.getenv("RAPIDAPI_KEY")
     if not rapidapi_key:
         raise HTTPException(status_code=500, detail="RAPIDAPI_KEY not set")
@@ -343,14 +343,23 @@ async def sync_exercises():
     }
 
     all_exercises = []
+    limit = 500
+    offset = 0
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.get(
-                "https://exercisedb.p.rapidapi.com/exercises?limit=1500&offset=0",
-                headers=headers
-            )
-            resp.raise_for_status()
-            all_exercises = resp.json()
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            while True:
+                resp = await client.get(
+                    f"https://exercisedb.p.rapidapi.com/exercises?limit={limit}&offset={offset}",
+                    headers=headers
+                )
+                resp.raise_for_status()
+                batch = resp.json()
+                if not batch:
+                    break
+                all_exercises.extend(batch)
+                if len(batch) < limit:
+                    break
+                offset += limit
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"RapidAPI error: {e}")
 
@@ -360,24 +369,24 @@ async def sync_exercises():
     for ex in all_exercises:
         name_en = ex.get("name", "").strip()
         body_part = ex.get("bodyPart", "")
-        gif_url = ex.get("gifUrl", "")
+        exercise_id = ex.get("id", "")
         if not name_en:
             continue
-        # name_en 기준으로 upsert (한글명은 없으므로 name=name_en으로 임시 저장, synced=1)
+        # name은 한글명 자리 — sync 데이터는 한글명이 없으므로 name_en 기준으로 UNIQUE 관리
+        # name 컬럼에 영문을 넣지 않도록 name_en만 upsert 키로 사용
         cursor.execute("""
-            INSERT INTO exercises (name, name_en, body_part, gif_url, synced)
+            INSERT INTO exercises (name, name_en, body_part, exercise_id, synced)
             VALUES (%s, %s, %s, %s, 1)
             ON DUPLICATE KEY UPDATE
-                name_en  = VALUES(name_en),
-                body_part = VALUES(body_part),
-                gif_url  = VALUES(gif_url),
-                synced   = 1
-        """, (name_en, name_en, body_part, gif_url))
+                body_part   = VALUES(body_part),
+                exercise_id = VALUES(exercise_id),
+                synced      = 1
+        """, (name_en, name_en, body_part, exercise_id))
         inserted += 1
 
     conn.commit()
     cursor.close(); conn.close()
-    return {"synced": inserted}
+    return {"synced": inserted, "total_fetched": len(all_exercises)}
 
 
 @router.get("/exercises/list")
@@ -391,44 +400,79 @@ def get_exercise_list():
     return rows
 
 
+GIF_DIR = os.path.join(os.path.dirname(__file__), "static", "gifs")
+os.makedirs(GIF_DIR, exist_ok=True)
+
+
+async def _download_and_cache_gif(exercise_db_id: int, exercise_id: str, rapidapi_key: str) -> str | None:
+    """RapidAPI에서 GIF를 다운로드해 로컬에 저장하고 정적 경로를 DB에 기록 후 반환"""
+    headers = {
+        "X-RapidAPI-Key": rapidapi_key,
+        "X-RapidAPI-Host": "exercisedb.p.rapidapi.com"
+    }
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            resp = await client.get(
+                f"https://exercisedb.p.rapidapi.com/image?exerciseId={exercise_id}&resolution=360",
+                headers=headers
+            )
+            resp.raise_for_status()
+            content_type = resp.headers.get("content-type", "image/gif")
+            ext = "gif" if "gif" in content_type else "webp"
+            filename = f"{exercise_id}.{ext}"
+            filepath = os.path.join(GIF_DIR, filename)
+            with open(filepath, "wb") as f:
+                f.write(resp.content)
+
+        static_url = f"/static/gifs/{filename}"
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("UPDATE exercises SET gif_url = %s WHERE id = %s", (static_url, exercise_db_id))
+        conn.commit()
+        cursor.close(); conn.close()
+        return static_url
+    except Exception as e:
+        print(f"GIF 다운로드 실패 (exerciseId={exercise_id}): {e}")
+        return None
+
+
 @router.get("/exercises/gif")
 async def get_exercise_gif(
     name_kr: str = Query(..., description="운동명(한글)"),
-    name_en: str = Query(None, description="운동명(영문, RapidAPI와 정확히 일치하는 이름)")
+    name_en: str = Query(None, description="운동명(영문)")
 ):
     """
-    synced=1 운동은 DB에 gif_url이 이미 있음 → 바로 반환.
-    루틴 저장 시 등록된 신규 운동(synced=0)은 name_en으로 RapidAPI 조회 후 캐싱.
+    1) DB에 gif_url(로컬 캐시) 있으면 바로 반환 — RapidAPI 호출 없음
+    2) exercise_id 있으면 GIF 다운로드 → 로컬 저장 → gif_url DB 저장
+    3) exercise_id도 없으면 RapidAPI name 검색 → exercise_id 획득 → 2번 수행
     """
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
 
-    cursor.execute("SELECT id, gif_url, synced, name_en FROM exercises WHERE name = %s", (name_kr,))
+    cursor.execute("SELECT id, gif_url, name_en, exercise_id FROM exercises WHERE name = %s", (name_kr,))
     exercise = cursor.fetchone()
 
     if not exercise:
-        # 아직 exercises 테이블에 없으면 등록
         cursor.execute(
             "INSERT INTO exercises (name, name_en, synced) VALUES (%s, %s, 0)",
             (name_kr, name_en)
         )
         conn.commit()
-        exercise = {"id": cursor.lastrowid, "gif_url": None, "synced": 0, "name_en": name_en}
+        exercise = {"id": cursor.lastrowid, "gif_url": None, "name_en": name_en, "exercise_id": None}
 
-    # gif_url이 이미 있으면 바로 반환 (synced=1 포함)
+    # 로컬 캐시 파일 있으면 바로 반환 (API 호출 없음)
     if exercise["gif_url"]:
         cursor.close(); conn.close()
         return {"gif_url": exercise["gif_url"]}
 
-    # name_en이 없으면 검색 불가
     effective_name_en = name_en or exercise.get("name_en")
+    cursor.close(); conn.close()
+
     if not effective_name_en:
-        cursor.close(); conn.close()
         return {"gif_url": None}
 
     rapidapi_key = os.getenv("RAPIDAPI_KEY")
     if not rapidapi_key:
-        cursor.close(); conn.close()
         return {"gif_url": None}
 
     headers = {
@@ -436,29 +480,80 @@ async def get_exercise_gif(
         "X-RapidAPI-Host": "exercisedb.p.rapidapi.com"
     }
 
-    gif_url = None
+    exercise_id = exercise.get("exercise_id")
+
+    # exercise_id 없으면 name 검색으로 획득
+    # 전체 이름 검색 실패 시 앞 단어를 줄여가며 재시도 (예: "smith machine squat" → "smith squat" → "smith")
+    if not exercise_id:
+        words = effective_name_en.lower().split()
+        # 시도할 키워드 목록: 전체 → 앞뒤 단어 조합 → 첫 단어만
+        candidates = [effective_name_en.lower()]
+        if len(words) >= 3:
+            # "machine" 같은 중간 수식어 제거: 첫 단어 + 마지막 단어
+            candidates.append(f"{words[0]} {words[-1]}")
+        if len(words) >= 2:
+            candidates.append(words[0])
+
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                for candidate in candidates:
+                    encoded = quote(candidate)
+                    resp = await client.get(
+                        f"https://exercisedb.p.rapidapi.com/exercises/name/{encoded}?limit=1&offset=0",
+                        headers=headers
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                    if isinstance(data, list) and len(data) > 0:
+                        exercise_id = data[0].get("id")
+                        matched_name = data[0].get("name", effective_name_en)
+                        print(f"RapidAPI: '{effective_name_en}' → '{candidate}' 검색 성공 (id={exercise_id}, matched='{matched_name}')")
+                        conn2 = get_connection()
+                        cur2 = conn2.cursor()
+                        cur2.execute(
+                            "UPDATE exercises SET exercise_id = %s, name_en = %s WHERE id = %s",
+                            (exercise_id, matched_name, exercise["id"])
+                        )
+                        conn2.commit()
+                        cur2.close(); conn2.close()
+                        break
+                    print(f"RapidAPI: '{candidate}' 검색 결과 없음, 다음 시도...")
+        except Exception as e:
+            print(f"RapidAPI name search error: {e}")
+
+    if not exercise_id:
+        return {"gif_url": None}
+
+    # GIF 다운로드 → 로컬 저장 → DB gif_url 업데이트 (API 1회)
+    gif_url = await _download_and_cache_gif(exercise["id"], exercise_id, rapidapi_key)
+    return {"gif_url": gif_url}
+
+
+from fastapi.responses import StreamingResponse
+
+gif_proxy_router = APIRouter()
+
+@gif_proxy_router.get("/gif-proxy")
+async def gif_proxy(exerciseId: str = Query(...)):
+    """로컬에 캐시 파일이 없는 경우를 위한 폴백 프록시 (인증 불필요)"""
+    rapidapi_key = os.getenv("RAPIDAPI_KEY")
+    if not rapidapi_key:
+        raise HTTPException(status_code=500, detail="RAPIDAPI_KEY not set")
+
+    headers = {
+        "X-RapidAPI-Key": rapidapi_key,
+        "X-RapidAPI-Host": "exercisedb.p.rapidapi.com"
+    }
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            encoded = quote(effective_name_en.lower())
+        async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.get(
-                f"https://exercisedb.p.rapidapi.com/exercises/name/{encoded}?limit=1&offset=0",
+                f"https://exercisedb.p.rapidapi.com/image?exerciseId={exerciseId}&resolution=360",
                 headers=headers
             )
             resp.raise_for_status()
-            data = resp.json()
-            if isinstance(data, list) and len(data) > 0:
-                gif_url = data[0].get("gifUrl")
-            else:
-                print(f"RapidAPI: no result for '{effective_name_en}'")
+            return StreamingResponse(
+                iter([resp.content]),
+                media_type=resp.headers.get("content-type", "image/gif")
+            )
     except Exception as e:
-        print(f"RapidAPI fetch error: {e}")
-
-    if gif_url:
-        cursor.execute(
-            "UPDATE exercises SET gif_url = %s, name_en = %s WHERE id = %s",
-            (gif_url, effective_name_en, exercise["id"])
-        )
-        conn.commit()
-
-    cursor.close(); conn.close()
-    return {"gif_url": gif_url}
+        raise HTTPException(status_code=502, detail=str(e))

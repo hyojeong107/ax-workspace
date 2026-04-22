@@ -100,6 +100,7 @@ def init_db():
         ("gif_url", "VARCHAR(512) DEFAULT NULL"),
         ("body_part", "VARCHAR(50)"),
         ("synced", "TINYINT(1) DEFAULT 0"),
+        ("exercise_id", "VARCHAR(20) DEFAULT NULL"),
     ]:
         try:
             cursor.execute(f"ALTER TABLE exercises ADD COLUMN {col} {definition}")

@@ -1,12 +1,14 @@
 """Main — FastAPI 진입점"""
 
 from fastapi import FastAPI, Depends, HTTPException
+from fastapi.staticfiles import StaticFiles
 from app.schemas import IndexRequest, IndexResponse, RetrieveResponse, ExistsResponse, GymDataResponse
 from app.auth import verify_api_key
 from app.indexing import index_gym
 from app.retrieval import retrieve_context, gym_exists, get_gym_data
 from app.db import init_db
-from app.db_router import router as db_router
+from app.db_router import router as db_router, gif_proxy_router
+import os
 
 app = FastAPI(
     title="FitStep API",
@@ -14,7 +16,12 @@ app = FastAPI(
     version="2.0.0",
 )
 
+GIF_DIR = os.path.join(os.path.dirname(__file__), "static", "gifs")
+os.makedirs(GIF_DIR, exist_ok=True)
+app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static")), name="static")
+
 app.include_router(db_router, prefix="/db")
+app.include_router(gif_proxy_router, prefix="/db/exercises")
 
 
 @app.on_event("startup")

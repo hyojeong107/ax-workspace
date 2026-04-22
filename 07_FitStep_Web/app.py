@@ -534,9 +534,15 @@ def _build_routine_prompt(user: dict, progression_context: str, gym_context: str
 
     if exercise_list:
         ex_lines = "\n".join(f"- {e['name_en']} ({e['body_part']})" for e in exercise_list)
-        exercise_section = f"\n[사용 가능한 근력 운동 목록 - name_en은 반드시 아래 목록에서 정확히 복사해서 사용하세요]\n{ex_lines}\n"
+        exercise_section = (
+            f"\n[사용 가능한 근력 운동 목록]\n{ex_lines}\n"
+            f"\n※ name_en 필드: 반드시 위 목록에서 정확히 복사하세요."
+            f"\n※ name 필드: 위 영문 운동명을 한국어로 번역해서 작성하세요. 절대 영어로 쓰지 마세요."
+            f"\n   예) barbell bench press → 바벨 벤치프레스 / lat pulldown → 랫풀다운 / squat → 스쿼트\n"
+        )
     else:
         exercise_section = ""
+
     return f"""당신은 전문 헬스 트레이너입니다.
 아래 사용자 정보를 바탕으로 오늘의 헬스장 운동 루틴을 추천해주세요.
 
@@ -552,7 +558,10 @@ def _build_routine_prompt(user: dict, progression_context: str, gym_context: str
 2. 목표가 여러 개라면 각 목표에 맞는 운동을 균형있게 섞어주세요.
 3. weight_kg 필드에는 반드시 숫자만 입력하세요. 맨몸 운동이면 0.
 4. category가 "유산소"인 운동은 반드시 아래 유산소 전용 규칙을 따르세요.
-5. 반드시 아래 JSON 형식으로만 응답하세요. (name_en은 위 목록에서 정확히 복사한 이름을 사용하세요)
+5. 반드시 아래 JSON 형식으로만 응답하세요.
+6. name 필드는 반드시 한국어로 작성하세요. name_en을 그대로 복사하면 절대 안 됩니다.
+   - name: 한국어 운동명 (예: "바벨 벤치프레스", "랫풀다운", "레그 컬")
+   - name_en: 영문 운동명, 위 목록에서 정확히 복사
 
 [유산소 운동 전용 규칙]
 - sets/reps/weight_kg 필드를 사용하지 말고, duration_min(분), speed_kmh(속도 km/h, 해당 없으면 0), incline_pct(경사도%, 해당 없으면 0)을 사용하세요.
@@ -564,8 +573,8 @@ def _build_routine_prompt(user: dict, progression_context: str, gym_context: str
 {{
   "exercises": [
     {{
-      "name": "근력 운동 이름",
-      "name_en": "Barbell Bench Press",
+      "name": "바벨 벤치프레스",
+      "name_en": "barbell bench press",
       "category": "가슴",
       "sets": 3,
       "reps": 12,

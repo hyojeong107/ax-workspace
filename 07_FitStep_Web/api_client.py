@@ -127,7 +127,11 @@ def api_get_exercise_history(user_id, exercise_name, limit=5):
 def api_get_exercise_gif(name_kr, name_en):
     try:
         res = _get("/db/exercises/gif", name_kr=name_kr, name_en=name_en)
-        return res.get("gif_url")
+        gif_url = res.get("gif_url")
+        # 상대경로 프록시 URL이면 베이스 URL 붙여서 절대경로로 변환
+        if gif_url and gif_url.startswith("/"):
+            gif_url = _base() + gif_url
+        return gif_url
     except Exception as e:
         print(f"Error fetching gif for {name_kr}: {e}")
         return None
