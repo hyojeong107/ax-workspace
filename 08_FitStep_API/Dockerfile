@@ -32,16 +32,14 @@ RUN mkdir -p /app/data/chroma_db && chown -R appuser:appgroup /app
 
 USER appuser
 
-EXPOSE 3000
+EXPOSE 8000
 
 # 헬스체크: /health 엔드포인트가 없으면 /docs 로 대체
 HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:3000/health')" || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
 
-# 프로덕션: workers=2 (CPU 코어 * 2 + 1 공식 기준, 컨테이너 기본값)
+# 개발용 (코드 수정 시 자동 재시작)
 CMD ["uvicorn", "app.main:app", \
      "--host", "0.0.0.0", \
-     "--port", "3000", \
-     "--workers", "2", \
-     "--proxy-headers", \
-     "--forwarded-allow-ips", "*"]
+     "--port", "8000", \
+     "--reload"]

@@ -74,6 +74,10 @@ def api_username_exists(username):
 def api_update_weight(user_id, weight_kg):
     return _patch(f"/db/users/{user_id}/weight", {"weight_kg": weight_kg})
 
+def api_update_profile(user_id, **kwargs):
+    body = {k: v for k, v in kwargs.items() if v is not None}
+    return _patch(f"/db/users/{user_id}/profile", body)
+
 
 # ── Routines ──────────────────────────────────────────────────────────────────
 

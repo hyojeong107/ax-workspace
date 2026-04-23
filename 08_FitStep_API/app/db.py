@@ -115,6 +115,17 @@ def init_db():
         )
     """)
 
+    # injury_tags 컬럼 추가 (없으면 추가, 있으면 무시)
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN injury_tags VARCHAR(200) DEFAULT NULL")
+    except Exception:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN injury_tags VARCHAR(200) DEFAULT NULL")
+    except Exception:
+        pass
+
     for col, definition in [
         ("gif_url", "VARCHAR(512) DEFAULT NULL"),
         ("body_part", "VARCHAR(50)"),

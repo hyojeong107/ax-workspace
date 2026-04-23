@@ -21,7 +21,7 @@ services:
     build: .
     container_name: gym_rag_api
     ports:
-      - "3000:3000"
+      - "8000:8000"
     environment:
       - OPENAI_API_KEY
       - DB_HOST=mysql

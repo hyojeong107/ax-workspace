@@ -1,4 +1,4 @@
-# 🚀 FitStep 배포 가이드
+# FitStep 배포 가이드
 
 Streamlit을 실행하는 방법은 두 가지입니다.
 
@@ -6,6 +6,72 @@ Streamlit을 실행하는 방법은 두 가지입니다.
 |------|-----------|---------------|
 | **로컬 직접 실행** | 개발·테스트 중 빠르게 확인하고 싶을 때 | Docker로 로컬에서 띄움 |
 | **Streamlit Cloud 배포** | 외부에 공개하거나 팀원과 공유할 때 | ngrok으로 터널링 |
+
+---
+
+## 서버 실행 명령어 (개발용)
+
+> Docker Desktop이 실행 중인 상태여야 합니다.
+
+### Windows (PowerShell / CMD)
+
+```powershell
+# 1. API 디렉토리 이동
+cd C:\Users\user\Desktop\dev\ax-workspace\ax-workspace\08_FitStep_API
+
+# 2. 최초 실행 or 코드 변경 후 — 이미지 재빌드 + 실행
+docker compose up -d --build
+
+# 3. 상태 확인 (fitstep_mysql, gym_rag_api 둘 다 Up 이어야 함)
+docker ps
+
+# 4. API 정상 확인
+curl http://localhost:8000/health
+
+# 5. Streamlit 웹 실행 (별도 터미널)
+cd C:\Users\user\Desktop\dev\ax-workspace\ax-workspace\07_FitStep_Web
+streamlit run app.py
+```
+
+### Mac / Linux (Terminal)
+
+```bash
+# 1. API 디렉토리 이동
+cd ~/Desktop/dev/ax-workspace/ax-workspace/08_FitStep_API
+
+# 2. 최초 실행 or 코드 변경 후 — 이미지 재빌드 + 실행
+docker compose up -d --build
+
+# 3. 상태 확인
+docker ps
+
+# 4. API 정상 확인
+curl http://localhost:8000/health
+
+# 5. Streamlit 웹 실행 (별도 터미널)
+cd ~/Desktop/dev/ax-workspace/ax-workspace/07_FitStep_Web
+streamlit run app.py
+```
+
+### 자주 쓰는 Docker 명령어
+
+| 상황 | 명령어 |
+|------|--------|
+| 코드 수정 후 반영 | `docker compose up -d --build gym-rag` |
+| MySQL은 유지하고 API만 재시작 | `docker compose restart gym-rag` |
+| 로그 확인 | `docker compose logs -f gym-rag` |
+| 전체 중지 (데이터 유지) | `docker compose down` |
+| 전체 중지 + 볼륨 삭제 (DB 초기화) | `docker compose down -v` |
+
+> **주의:** `down -v`는 MySQL 데이터도 삭제됩니다.
+
+### 포트 정보
+
+| 서비스 | 주소 |
+|--------|------|
+| FastAPI (Swagger) | http://localhost:8000/docs |
+| FastAPI (헬스체크) | http://localhost:8000/health |
+| Streamlit 웹 | http://localhost:8501 |
 
 ---
 
@@ -20,20 +86,20 @@ Streamlit을 실행하는 방법은 두 가지입니다.
 [Streamlit 로컬 프로세스]  ← python 직접 실행
       │  HTTP REST
       ▼
-[Docker: gym_rag_api]  :3000  ← FastAPI + ChromaDB
+[Docker: gym_rag_api]  :8000  ← FastAPI + ChromaDB
 [Docker: fitstep_mysql]       ← MySQL
 ```
 
 ### 1. FastAPI 백엔드 Docker 실행
 
 ```bash
-cd ax-workspace/08_FitStep_API
+cd 08_FitStep_API
 
 docker compose up -d --build
 
 # 확인
 docker ps  # gym_rag_api, fitstep_mysql 둘 다 Up 이어야 함
-curl http://localhost:3000/health
+curl http://localhost:8000/health
 ```
 
 ### 2. Streamlit 환경 변수 설정
@@ -42,7 +108,7 @@ curl http://localhost:3000/health
 (이 파일은 `.gitignore`에 등록되어 있으므로 실제 값을 입력해도 됩니다)
 
 ```toml
-RAG_API_URL = "http://localhost:3000"
+RAG_API_URL = "http://localhost:8000"
 RAG_API_KEY = "여기에_비밀번호_입력"
 ```
 
@@ -51,7 +117,7 @@ RAG_API_KEY = "여기에_비밀번호_입력"
 ### 3. 의존성 설치 (최초 1회)
 
 ```bash
-cd ax-workspace/07_FitStep_Web
+cd 07_FitStep_Web
 
 pip install -r requirements.txt
 ```
@@ -115,18 +181,18 @@ Streamlit Cloud(웹 UI) + Docker(FastAPI + MySQL + ChromaDB) + ngrok(터널) 조
 
 ## 포트 구성
 
-FastAPI 컨테이너는 포트 **3000**을 사용합니다. 포트 설정은 3곳이 항상 일치해야 합니다.
+FastAPI 컨테이너는 포트 **8000**을 사용합니다. 포트 설정은 3곳이 항상 일치해야 합니다.
 
 | 파일 | 설정 위치 | 현재 값 |
 |------|-----------|---------|
-| `Dockerfile` | `EXPOSE` + `--port` | `3000` |
-| `docker-compose.yml` | `ports: "호스트:컨테이너"` | `"3000:3000"` |
-| ngrok 터널 | `ngrok http <포트>` | `3000` |
+| `Dockerfile` | `EXPOSE` + `--port` | `8000` |
+| `docker-compose.yml` | `ports: "호스트:컨테이너"` | `"8000:8000"` |
+| ngrok 터널 | `ngrok http <포트>` | `8000` |
 
 **포트를 바꾸고 싶다면** 위 3곳을 동일한 번호로 수정하면 됩니다.
 
 `docker-compose.yml`의 `ports` 앞뒤 숫자 의미:
-- **앞 (호스트 포트)** — 내 PC에서 `localhost:3000`으로 접근할 때 쓰는 포트. 다른 프로세스와 충돌하지 않으면 자유롭게 변경 가능
+- **앞 (호스트 포트)** — 내 PC에서 `localhost:8000`으로 접근할 때 쓰는 포트. 다른 프로세스와 충돌하지 않으면 자유롭게 변경 가능
 - **뒤 (컨테이너 포트)** — 컨테이너 내부 uvicorn이 실제로 열고 있는 포트. `Dockerfile`의 `EXPOSE` 및 `--port`와 반드시 일치해야 함
 
 ---
@@ -164,7 +230,7 @@ docker logs gym_rag_api
 ### 동작 확인
 
 ```bash
-curl http://localhost:3000/health
+curl http://localhost:8000/health
 # → {"status":"ok"}
 ```
 
@@ -182,12 +248,12 @@ ngrok config add-authtoken <your-token>
 ### 터널 실행
 
 ```bash
-ngrok http 3000
+ngrok http 8000
 ```
 
 터미널에 표시되는 URL 복사:
 ```
-Forwarding  https://xxxx-xxx-xxx.ngrok-free.app -> http://localhost:3000
+Forwarding  https://xxxx-xxx-xxx.ngrok-free.app -> http://localhost:8000
 ```
 
 > ngrok을 재시작하면 URL이 바뀝니다. 바뀔 때마다 Streamlit Cloud Secrets의 `RAG_API_URL`을 업데이트해야 합니다.
@@ -251,7 +317,7 @@ chromadb==1.5.8
 | 상황 | 조치 |
 |------|------|
 | ngrok 재시작 시 URL 변경됨 | Streamlit Cloud Secrets의 `RAG_API_URL` 업데이트 |
-| PC 재부팅 후 | `docker compose up -d` + `ngrok http 3000` 재실행 (포트 3000 고정) |
+| PC 재부팅 후 | `docker compose up -d` + `ngrok http 8000` 재실행 (포트 8000 고정) |
 | 데이터 유실 없음 | MySQL·ChromaDB 데이터는 Docker Volume에 영속화됨 |
 | FastAPI 로그 확인 | `docker logs -f gym_rag_api` |
 | MySQL 접속 | `docker exec -it fitstep_mysql mysql -u root -p여기에_비밀번호_입력 fitstep` |

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from app.auth import verify_api_key
 from app.db import get_connection
 from app.db_schemas import (
-    UserCreate, UserLogin, UserOut, UserWeightUpdate,
+    UserCreate, UserLogin, UserOut, UserWeightUpdate, UserProfileUpdate,
     RoutineSave, RoutineOut,
     LogSave,
 )
@@ -67,16 +67,14 @@ def login(body: UserLogin):
     return user
 
 
-@router.get("/users/{user_id}", response_model=UserOut)
-def get_user(user_id: int):
+@router.get("/users/exists")
+def username_exists(username: str = Query(...)):
     conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
-    user = cursor.fetchone()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM users WHERE username = %s", (username,))
+    found = cursor.fetchone() is not None
     cursor.close(); conn.close()
-    if not user:
-        raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
-    return user
+    return {"exists": found}
 
 
 @router.get("/users", response_model=list[UserOut])
@@ -89,14 +87,16 @@ def get_all_users():
     return users
 
 
-@router.get("/users/exists")
-def username_exists(username: str = Query(...)):
+@router.get("/users/{user_id}", response_model=UserOut)
+def get_user(user_id: int):
     conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT id FROM users WHERE username = %s", (username,))
-    found = cursor.fetchone() is not None
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
+    user = cursor.fetchone()
     cursor.close(); conn.close()
-    return {"exists": found}
+    if not user:
+        raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
+    return user
 
 
 @router.patch("/users/{user_id}/weight")
@@ -110,6 +110,25 @@ def update_weight(user_id: int, body: UserWeightUpdate):
     conn.commit()
     cursor.close(); conn.close()
     return {"ok": True}
+
+
+@router.patch("/users/{user_id}/profile", response_model=UserOut)
+def update_profile(user_id: int, body: UserProfileUpdate):
+    fields = {k: v for k, v in body.model_dump().items() if v is not None}
+    if not fields:
+        raise HTTPException(status_code=400, detail="업데이트할 필드가 없습니다.")
+    set_clause = ", ".join(f"{k} = %s" for k in fields)
+    values = list(fields.values()) + [user_id]
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute(f"UPDATE users SET {set_clause} WHERE id = %s", values)
+    conn.commit()
+    cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
+    user = cursor.fetchone()
+    cursor.close(); conn.close()
+    if not user:
+        raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
+    return user
 
 
 # ── Routines ──────────────────────────────────────────────────────────────────

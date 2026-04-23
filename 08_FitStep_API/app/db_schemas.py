@@ -35,10 +35,21 @@ class UserOut(BaseModel):
     fitness_level: Optional[str]
     goal: Optional[str]
     health_notes: Optional[str]
+    injury_tags: Optional[str] = None
 
 
 class UserWeightUpdate(BaseModel):
     weight_kg: float
+
+
+class UserProfileUpdate(BaseModel):
+    weight_kg: Optional[float] = None
+    height_cm: Optional[float] = None
+    age: Optional[int] = None
+    fitness_level: Optional[str] = None
+    goal: Optional[str] = None
+    health_notes: Optional[str] = None
+    injury_tags: Optional[str] = None
 
 
 # ── Routine ───────────────────────────────────────────────────────────────────

@@ -21,12 +21,15 @@
 
 | 기능 | 설명 |
 |------|------|
-| 사용자 프로필 등록 | 나이, 키, 몸무게, 체력 수준, 운동 목표(복수), 건강 주의사항 입력 |
+| 사용자 프로필 등록/수정 | 나이, 키, 몸무게, 체력 수준, 운동 목표(복수), 건강 주의사항, 부상 태그 입력·수정 |
 | AI 운동 루틴 추천 | OpenAI GPT-4o-mini가 프로필·이력·진행 상태를 분석해 맞춤 루틴 생성 |
 | RAG 기반 헬스장 맞춤화 | 사용자의 헬스장 기구 정보를 벡터DB(ChromaDB)에 저장 후 AI가 해당 기구만 추천 |
+| 컨디션 기반 루틴 개인화 | 루틴 추천 전 오늘의 컨디션(1-5점)·근육통 부위 입력 → AI가 볼륨·제외 부위 자동 조정 |
+| 운동 split 자동 감지 | 최근 2일 운동 기록을 분석해 이미 훈련한 부위를 제외하고 루틴 생성 |
 | 운동 기록 관리 | 실제 수행한 세트·횟수·무게·메모 저장 |
 | 점진적 향상 분석 | Progressive Overload 원리에 따라 무게·횟수 증가 자동 제안 |
 | 성장 대시보드 | 완료 루틴 수·연속 운동일·운동별 최고 기록 등 시각화 |
+| 체력 수준 승급 제안 | 완료 루틴 10회 이상 + 레벨업 운동 3가지 이상 시 자동으로 fitness_level 올리기 배너 표시 |
 
 ### 기술 스택
 
@@ -223,6 +226,43 @@ has_gym_data(user_id) -> bool
     # 해당 사용자의 헬스장 데이터 존재 여부
 ```
 
+> **현재 RAG 사용 방식 주의:** `retrieve_gym_context()`는 내부적으로 `collection.get(where={"user_id": ...})`를 사용합니다. 이는 유사도 검색(similarity search)이 아닌 **필터 조회**로, 해당 사용자의 모든 문서를 통째로 반환합니다. 즉, 현재는 ChromaDB를 단순 저장소로 사용하고 있으며, 진정한 의미의 RAG(관련 문서만 선택적 주입)는 아직 구현되지 않은 상태입니다.
+
+### RAG 고도화 계획 (향후 구현 예정)
+
+**방법 1 — 운동 지식 DB RAG** *(구현 예정)*
+
+수백 개의 운동 가이드 문서(부위별, 부상 금기사항, 목표별 적합도)를 ChromaDB에 저장하고, 사용자의 프로필 정보로 유사도 검색을 수행해 가장 관련성 높은 가이드만 GPT 프롬프트에 주입하는 방식.
+
+**현재 방식 vs 개선 방식 비교:**
+
+| | 현재 | 방법 1 구현 후 |
+|---|---|---|
+| ChromaDB 저장 데이터 | 사용자 헬스장 기구 정보 | 운동 지식 문서 수백 건 (부위별·부상별·목표별 가이드) |
+| 검색 방식 | `collection.get()` (전체 조회) | `collection.query(query_embeddings=...)` (유사도 검색) |
+| 검색 쿼리 | 없음 (user_id 필터만) | 사용자 부상 태그 + 목표 + 오늘 훈련 부위 조합 |
+| GPT 주입 내용 | 기구 목록 전체 | 상위 N개 관련 운동 가이드만 선택적 주입 |
+
+**구현 계획:**
+```python
+# 1단계: 운동 지식 문서 사전 적재 (seed 스크립트)
+#   - 예: "어깨 회전근개 부상 시 금기 운동: 오버헤드 프레스, 업라이트 로우..."
+#   - 예: "초급자 하체 루틴: 스쿼트 3×12, 레그프레스 3×15..."
+
+# 2단계: 쿼리 텍스트 생성
+query = f"부상: {injury_tags}, 목표: {goal}, 오늘 훈련 부위: {target_body_part}"
+
+# 3단계: 유사도 검색으로 관련 가이드 Top-5 추출
+results = collection.query(
+    query_embeddings=[embed(query)],
+    n_results=5,
+    where={"type": "exercise_guide"}
+)
+
+# 4단계: GPT 프롬프트에 선택적 주입
+# → 부상 금기·목표별 가이드만 포함해 hallucination 감소
+```
+
 ---
 
 ## 07_FitStep_web - Streamlit 웹 인터페이스
@@ -256,6 +296,7 @@ def _h() -> dict:
 |------|-------------|------|
 | `api_save_user()` | POST /db/users | 회원가입 |
 | `api_login()` | POST /db/users/login | 로그인 |
+| `api_update_profile()` | PATCH /db/users/{id}/profile | 프로필 부분 수정 (injury_tags 포함) |
 | `api_save_routine()` | POST /db/routines | 루틴 저장 |
 | `api_get_today_routine()` | GET /db/routines/today/{uid} | 오늘 루틴 조회 |
 | `api_save_log()` | POST /db/logs | 운동 기록 저장 |
@@ -268,10 +309,11 @@ def _h() -> dict:
 2. **디자인**: Black & White 테마 (배경 흰색, 버튼·테두리 검정)
 3. **세션 상태 관리**:
    ```python
-   st.session_state.page        # 현재 페이지
-   st.session_state.user_id     # 로그인한 사용자 ID
-   st.session_state.user        # 사용자 정보 딕셔너리
-   st.session_state.today_result  # 오늘의 루틴 객체
+   st.session_state.page           # 현재 페이지
+   st.session_state.user_id        # 로그인한 사용자 ID
+   st.session_state.user           # 사용자 정보 딕셔너리
+   st.session_state.today_result   # 오늘의 루틴 객체
+   st.session_state[f"condition_{date.today()}"]  # 오늘의 컨디션 정보 (날짜키 → 다음날 자동 만료)
    ```
 
 **주요 페이지:**
@@ -279,11 +321,21 @@ def _h() -> dict:
 | 페이지 함수 | 내용 |
 |-----------|------|
 | `page_login()` | 로그인/회원가입 폼 |
-| `page_menu()` | 메인 메뉴 (루틴추천/기록/대시보드/기구등록/로그아웃) |
-| `page_recommend()` | Plotly 도넛·바 차트 + 운동 카드 + AI 조언 |
+| `page_menu()` | 메인 메뉴 (루틴추천/기록/대시보드/기구등록/프로필수정/로그아웃) |
+| `page_recommend()` | 컨디션 입력 → 체력수준 승급 배너 → Plotly 도넛·바 차트 + 운동 카드 + AI 조언 |
 | `page_logging()` | 진행 상황 칩 + Progress Bar + 운동별 입력 폼 |
 | `page_dashboard()` | 통계 카드 4개 + 30일 히트맵 + 최대중량 바 차트 + 성장 테이블 |
 | `page_gym()` | 기구 목록 테이블 + 추가/수정 폼 + ChromaDB 저장 |
+| `page_profile_edit()` | 체중·키·나이·체력수준·목표·부상태그·건강주의사항 수정 폼 |
+
+**주요 헬퍼 함수:**
+
+| 함수 | 역할 |
+|------|------|
+| `_build_routine_prompt()` | GPT 프롬프트 생성 (부상·컨디션·split·볼륨가이드라인 섹션 포함) |
+| `_get_recent_body_parts(user_id)` | 최근 2일 운동 로그를 regex로 분석해 훈련한 신체 부위 목록 반환 |
+| `_check_level_up_suggestion(user, uid)` | 완료 루틴 ≥10 + 레벨업 운동 ≥3 충족 시 승급 배너 표시 |
+| `_calc_progression_suggestion()` | 나이·BMI·성별·체력 수준을 고려한 점진적 증가 제안 계산 |
 
 ### 환경변수
 
@@ -374,6 +426,7 @@ def verify_api_key(api_key: str = Security(_api_key_header)) -> str:
 | GET | /db/users/{id} | 사용자 정보 조회 |
 | GET | /db/users | 전체 사용자 목록 |
 | PATCH | /db/users/{id}/weight | 체중 업데이트 |
+| PATCH | /db/users/{id}/profile | 프로필 전체 업데이트 (injury_tags 포함, 보낸 필드만 변경) |
 
 #### Routines
 
@@ -433,6 +486,16 @@ class UserOut(BaseModel):
     fitness_level: Optional[str]
     goal: Optional[str]
     health_notes: Optional[str]
+    injury_tags: Optional[str] = None   # 부상/통증 태그 (쉼표 구분)
+
+class UserProfileUpdate(BaseModel):
+    weight_kg: Optional[float] = None
+    height_cm: Optional[float] = None
+    age: Optional[int] = None
+    fitness_level: Optional[str] = None
+    goal: Optional[str] = None
+    health_notes: Optional[str] = None
+    injury_tags: Optional[str] = None   # None인 필드는 UPDATE 제외
 
 class RoutineSave(BaseModel):
     user_id: int
@@ -597,24 +660,35 @@ from openai import OpenAI
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 ```
 
-**프롬프트 구성 흐름:**
+**루틴 추천 흐름 (웹앱 기준):**
 ```
-사용자 프로필 (나이/몸무게/목표/주의사항)
-  + 최근 7일 운동 이력
-  + 점진적 향상 분석 결과
-  + ChromaDB에서 검색한 헬스장 기구 정보
-          ↓
-recommender._build_prompt() → 프롬프트 생성
-          ↓
-client.chat.completions.create(
-    model="gpt-4o-mini",
-    response_format={"type": "json_object"},
-    temperature=0.7
-)
-          ↓
-json.loads(response) → 운동 목록 & 조언
-          ↓
-MySQL routines 테이블 저장
+1. page_recommend() 진입
+        ↓
+2. 오늘 컨디션 미입력 → 컨디션 입력 화면 표시
+   (컨디션 점수 1-5 슬라이더 + 근육통 부위 멀티셀렉트)
+   → st.session_state["condition_{오늘날짜}"] 에 저장 (다음날 자동 만료)
+        ↓
+3. _check_level_up_suggestion() 호출
+   → 완료 루틴 ≥ 10 AND 레벨업 운동 ≥ 3 이면 st.info 배너 표시
+        ↓
+4. _get_recent_body_parts(user_id) 호출
+   → 최근 2일 workout_logs에서 운동명을 regex로 분석해 훈련 부위 추출
+        ↓
+5. _build_routine_prompt() 호출 (condition_info + recent_body_parts 전달)
+   프롬프트에 포함되는 섹션:
+   - [사용자 프로필] 나이·몸무게·체력수준·목표
+   - [부상 주의사항] injury_tags 기반 금지 운동·대체 운동 안내
+   - [오늘 볼륨 조정] 컨디션 점수에 따른 세트 수·강도 조정 지시
+   - [오늘 제외할 부위] 근육통 선택 부위 + 최근 2일 훈련 부위 합산
+   - [볼륨 가이드라인] goal 기반 세트·반복 수·강도 기준 제시
+   - [점진적 향상] progression API 분석 결과
+   - [헬스장 기구] ChromaDB RAG 컨텍스트
+        ↓
+6. OpenAI GPT-4o-mini → 루틴 JSON 생성
+        ↓
+7. POST /db/routines → MySQL 저장
+        ↓
+8. 웹 화면에 카드·차트 표시
 ```
 
 ### FastAPI REST API
@@ -664,6 +738,7 @@ collection.get(where={"user_id": {"$eq": user_id}})
 | fitness_level | VARCHAR(20) | beginner / intermediate / advanced |
 | goal | VARCHAR(200) | 운동 목표 (쉼표 구분) |
 | health_notes | TEXT | 건강 주의사항 |
+| injury_tags | VARCHAR(200) | 부상/통증 태그 (쉼표 구분, 예: "무릎,허리") |
 | created_at | DATETIME | 등록 일시 |
 
 #### routines

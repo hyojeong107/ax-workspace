@@ -39,7 +39,8 @@ from api_client import (
     api_save_routine, api_get_today_routine, api_complete_routine, api_delete_today_routine,
     api_save_log, api_get_logged_names, api_get_recent_logs,
     api_get_recent_exercises, api_get_stats, api_get_progression,
-    api_get_exercise_history, api_get_exercise_gif, api_get_exercise_list
+    api_get_exercise_history, api_get_exercise_gif, api_get_exercise_list,
+    api_update_profile,
 )
 from rag.gym_rag import has_gym_data, save_gym_to_vector_db, get_gym_profile_from_api
 
@@ -440,6 +441,7 @@ def page_menu():
             ("✅", "운동 완료 기록", "오늘 한 운동을 세트별로 기록해요", "log", "linear-gradient(135deg, #d4eeda, #c8e8d0)"),
             ("📊", "성장 대시보드", "나의 운동 기록과 성장 현황을 확인해요", "dashboard", "linear-gradient(135deg, #e0e8f8, #ccd8f0)"),
             ("🏢", "헬스장 기구 관리", "보유 기구를 등록·수정하면 더 정확한 추천이 가능해요", "gym", "linear-gradient(135deg, #f0e8f8, #e4d8f0)"),
+            ("✏️", "내 프로필 수정", "체중·목표·부상 정보를 업데이트해요", "profile_edit", "linear-gradient(135deg, #fdf0e8, #f8e4d4)"),
         ]
 
         for icon, label, desc, target, grad in menus:
@@ -480,11 +482,19 @@ def page_menu():
 # ══════════════════════════════════════════════════════════════════════════════
 # ROUTINE RECOMMENDATION LOGIC (uses API client instead of direct DB)
 # ══════════════════════════════════════════════════════════════════════════════
-def _build_routine_prompt(user: dict, progression_context: str, gym_context: str, exercise_list: list = None) -> str:
+def _build_routine_prompt(user: dict, progression_context: str, gym_context: str, exercise_list: list = None,
+                          condition_info: dict = None, recent_body_parts: list = None) -> str:
     fitness_labels = {"beginner": "초보자", "intermediate": "중급자", "advanced": "고급자"}
     level = fitness_labels.get(user["fitness_level"], user["fitness_level"])
     bmi = round(user["weight_kg"] / ((user["height_cm"] / 100) ** 2), 1)
-    prog_section = f"\n{progression_context}\n" if progression_context else ""
+    prog_section = (
+        f"\n{progression_context}\n"
+        "\n[점진적 과부하 & 순환 전략 — 반드시 준수]\n"
+        "- '⬆ 레벨업 권장' 운동은 제안된 구체적인 변형 동작 또는 증가된 무게로 오늘 루틴에 반영하세요.\n"
+        "- 변형 동작 제안 시 반드시 실제 운동명을 명시하세요. (예: 스쿼트→불가리안 스플릿 스쿼트, 푸시업→다이아몬드 푸시업, 플랭크→RKC 플랭크)\n"
+        "- '→ 현행 유지' 운동도 3~4회 이상 반복됐으면 루틴에 다시 포함시켜 근육이 익숙해지게 하세요.\n"
+        "- 영원히 새 동작만 추가하지 말고, 이전에 했던 운동을 주기적으로 재등장시켜 강도·무게를 높이는 방식으로 순환하세요.\n"
+    ) if progression_context else ""
     if gym_context:
         gym_section = f"\n[헬스장 환경 - 아래 기구·시설만 사용하는 운동으로 구성해주세요]\n{gym_context}\n→ 위 목록에 없는 기구가 필요한 운동은 절대 추천하지 마세요.\n"
     else:
@@ -501,6 +511,74 @@ def _build_routine_prompt(user: dict, progression_context: str, gym_context: str
     else:
         exercise_section = ""
 
+    # ── 부상 주의사항 섹션 ──────────────────────────────────────────────────────
+    injury_tags = user.get("injury_tags") or ""
+    injury_lines = []
+    if "허리 통증/부상" in injury_tags:
+        injury_lines.append(
+            "- 허리 통증/부상: 데드리프트, 굿모닝, 과도한 하이퍼익스텐션 제외."
+            " 대신 코어 안정화 운동(플랭크, 버드독, 맥킬 빅3) 포함 권장."
+        )
+    if "무릎 통증/부상" in injury_tags:
+        injury_lines.append(
+            "- 무릎 통증/부상: 풀스쿼트, 레그익스텐션, 점프 런지 제외."
+            " 대신 레그프레스(얕은 각도), 힙쓰러스트, 클램쉘 권장."
+        )
+    if "어깨 통증/부상" in injury_tags:
+        injury_lines.append(
+            "- 어깨 통증/부상: 오버헤드프레스, 업라이트로우, 풀업 제외."
+            " 대신 케이블 로우, 시티드 로우, 페이스풀 권장."
+        )
+    if "손목 통증/부상" in injury_tags:
+        injury_lines.append(
+            "- 손목 통증/부상: 바벨 컬, 바벨 프레스류 제외."
+            " 대신 해머컬, 덤벨 변형 동작 권장."
+        )
+    injury_section = (
+        "\n[부상 주의사항 — 반드시 준수]\n" + "\n".join(injury_lines) + "\n"
+        if injury_lines else ""
+    )
+
+    # ── 컨디션 기반 볼륨 조정 섹션 ────────────────────────────────────────────
+    cond = (condition_info or {}).get("condition", "보통")
+    soreness = (condition_info or {}).get("soreness", [])
+    if cond in ("매우 피곤", "피곤"):
+        volume_guide = "운동 3-4개, 각 2-3세트, 중량 평소의 70-80%. 유산소 1개 포함."
+    elif cond in ("좋음", "최상"):
+        volume_guide = "운동 5-6개, 4-5세트, 도전적 중량으로 구성."
+    else:
+        volume_guide = "기본 루틴: 운동 4-5개, 3세트."
+    condition_section = (
+        f"\n[오늘 볼륨 조정]\n- 오늘 컨디션: {cond}\n- 권장 볼륨: {volume_guide}\n"
+    )
+
+    # ── 제외 부위 섹션 (근육통 + 최근 2일 운동 부위) ──────────────────────────
+    avoid_parts = list(set(soreness + (recent_body_parts or [])))
+    avoid_section = (
+        f"\n[오늘 제외하거나 최소화할 부위]\n{', '.join(avoid_parts)}"
+        " — 이 부위 운동은 루틴에서 제외하거나 매우 가볍게만 포함하세요.\n"
+        if avoid_parts else ""
+    )
+
+    # ── 목표별 볼륨 가이드라인 ─────────────────────────────────────────────────
+    goal = user.get("goal", "")
+    goal_guides = []
+    if "근육증가" in goal:
+        goal_guides.append("근육증가: 3-5세트 × 6-12회, 고중량 (1RM 75-85%)")
+    if "체중감량" in goal:
+        goal_guides.append("체중감량: 3세트 × 12-15회, 중중량 + 유산소 1개 필수")
+    if "체력향상" in goal:
+        goal_guides.append("체력향상: 3-4세트 × 10-15회, 중중량")
+    if "재활/부상회복" in goal:
+        goal_guides.append("재활/부상회복: 2-3세트 × 15-20회, 저중량, 통증 없는 범위")
+    if "건강유지" in goal:
+        goal_guides.append("건강유지: 3세트 × 10-12회, 중중량")
+    volume_guideline_section = (
+        "\n[볼륨 가이드라인 — 목표별 기준]\n"
+        + "\n".join(f"- {g}" for g in goal_guides) + "\n"
+        if goal_guides else ""
+    )
+
     return f"""당신은 전문 헬스 트레이너입니다.
 아래 사용자 정보를 바탕으로 오늘의 헬스장 운동 루틴을 추천해주세요.
 
@@ -510,7 +588,7 @@ def _build_routine_prompt(user: dict, progression_context: str, gym_context: str
 - 체력 수준: {level}
 - 운동 목표: {user['goal']}
 - 건강 주의사항: {user['health_notes'] or '없음'}
-{prog_section}{gym_section}{exercise_section}
+{prog_section}{injury_section}{condition_section}{avoid_section}{volume_guideline_section}{gym_section}{exercise_section}
 [출력 규칙]
 1. 운동은 4~6개로 구성해주세요.
 2. 목표가 여러 개라면 각 목표에 맞는 운동을 균형있게 섞어주세요.
@@ -572,9 +650,77 @@ def _build_routine_prompt(user: dict, progression_context: str, gym_context: str
 }}"""
 
 
-def _build_progression_context_from_api(user_id: int, past_exercises: list) -> str:
+def _calc_progression_suggestion(history: list, user: dict) -> tuple[str, str]:
+    """
+    운동 기록 + 사용자 신체 정보를 종합해 레벨업 상태와 다음 목표를 반환.
+    returns: (status_label, suggestion_text)
+    """
+    if not history:
+        return "→ 현행 유지", "기록 부족"
+
+    sessions = len(history)
+    last = history[0]
+    reps_list = [h["reps_done"] for h in history]
+    avg_reps = sum(reps_list) / sessions
+    last_reps = last.get("reps_done", 0)
+    last_weight = last.get("weight_kg", 0)
+    last_sets = last.get("sets_done", 0)
+
+    age = user.get("age", 30)
+    gender = user.get("gender", "")
+    weight_kg = user.get("weight_kg", 70)
+    height_cm = user.get("height_cm", 170)
+    fitness_level = user.get("fitness_level", "beginner")
+
+    bmi = weight_kg / ((height_cm / 100) ** 2) if height_cm else 22.0
+
+    # 성별·나이·BMI 기반 기준 횟수 상한
+    if gender == "female":
+        reps_cap = 15
+    elif age >= 50:
+        reps_cap = 15
+    elif bmi >= 30:
+        reps_cap = 15
+    elif fitness_level == "advanced":
+        reps_cap = 20
+    elif fitness_level == "intermediate":
+        reps_cap = 18
+    else:
+        reps_cap = 15
+
+    # 레벨업 판단: 세션 2회+, 세트 3개+, 평균 횟수가 상한의 80% 이상
+    ready_threshold = reps_cap * 0.8
+    basic_ready = sessions >= 2 and last_sets >= 3 and avg_reps >= ready_threshold
+
+    if not basic_ready:
+        return "→ 현행 유지", "현재 무게와 횟수를 유지하세요"
+
+    # 레벨업 방향 결정
+    if last_weight > 0:
+        # 기구 운동: 무게 증가 (나이/BMI에 따라 증가율 조정)
+        if age >= 50 or bmi >= 28:
+            rate = 1.05  # 5%
+        elif fitness_level == "advanced":
+            rate = 1.05
+        else:
+            rate = 1.075  # 7.5%
+        next_w = round(last_weight * rate, 1)
+        suggestion = f"무게를 {next_w}kg으로 늘려보세요 (현재 {last_weight}kg)"
+    elif last_reps >= reps_cap:
+        # 맨몸 운동 상한 도달 → GPT가 구체적인 변형 동작 이름으로 대체 추천
+        suggestion = f"횟수 상한({reps_cap}회) 도달 → 더 어려운 변형 동작으로 교체 필요"
+    else:
+        # 맨몸 운동, 아직 상한 미달 → 횟수 +2
+        next_reps = min(int(avg_reps) + 2, reps_cap)
+        suggestion = f"횟수를 {next_reps}회로 늘려보세요 (상한: {reps_cap}회)"
+
+    return "⬆ 레벨업 권장", suggestion
+
+
+def _build_progression_context_from_api(user_id: int, past_exercises: list, user: dict = None) -> str:
     if not past_exercises:
         return ""
+    user = user or {}
     lines = ["[운동 진행 분석 — 파생/강화 추천 시 반드시 반영]"]
     for name in past_exercises:
         history = api_get_exercise_history(user_id, name, limit=5)
@@ -582,17 +728,85 @@ def _build_progression_context_from_api(user_id: int, past_exercises: list) -> s
             continue
         sessions = len(history)
         last = history[0]
-        avg_reps = sum(h["reps_done"] for h in history) / sessions
-        ready = sessions >= 2 and last["sets_done"] >= 3 and avg_reps >= 11.0
-        status = "⬆ 레벨업 권장" if ready else "→ 현행 유지"
+        status, suggestion = _calc_progression_suggestion(history, user)
         lines.append(
             f"- {name}: {sessions}회 수행 | "
-            f"최근 {last['sets_done']}세트×{last['reps_done']}회 / {last['weight_kg']}kg | {status}"
+            f"최근 {last['sets_done']}세트×{last['reps_done']}회 / {last['weight_kg']}kg | "
+            f"{status} → {suggestion}"
         )
     return "\n".join(lines)
 
 
-def recommend_routine(user: dict, force_new: bool = False) -> dict:
+_BODY_PART_MAP = {
+    r"chest|bench|fly|플라이|벤치|가슴": "가슴",
+    r"back|row|pulldown|deadlift|등|로우|풀다운|데드": "등",
+    r"shoulder|press|overhead|어깨|숄더|오버헤드": "어깨",
+    r"squat|leg|lunge|스쿼트|레그|런지|허벅지": "하체",
+    r"bicep|tricep|curl|팔|이두|삼두|컬": "팔",
+    r"abs|plank|crunch|복근|플랭크|크런치": "복근",
+}
+
+
+def _get_recent_body_parts(user_id: int) -> list[str]:
+    """최근 2일간 운동 기록에서 부위를 추정해 중복 없는 목록으로 반환."""
+    import re
+    from datetime import datetime
+    try:
+        logs = api_get_recent_logs(user_id, limit=40)
+    except Exception:
+        return []
+    cutoff = (date.today() - timedelta(days=2)).isoformat()
+    parts = set()
+    for log in logs:
+        log_date = str(log.get("log_date", ""))[:10]
+        if log_date < cutoff:
+            continue
+        name = (log.get("exercise_name") or "").lower()
+        for pattern, part in _BODY_PART_MAP.items():
+            if re.search(pattern, name):
+                parts.add(part)
+                break
+    return list(parts)
+
+
+def _check_level_up_suggestion(user: dict, uid: int) -> tuple[bool, str, str]:
+    """레벨업 조건 충족 여부와 현재/다음 레벨 반환."""
+    current = user.get("fitness_level", "beginner")
+    if current == "advanced":
+        return False, current, current
+    level_map = {"beginner": "intermediate", "intermediate": "advanced"}
+    next_level = level_map.get(current, current)
+    level_label = {"beginner": "초보자", "intermediate": "중급자", "advanced": "고급자"}
+    try:
+        stats = api_get_stats(uid)
+        progression = api_get_progression(uid)
+    except Exception:
+        return False, current, next_level
+    completed = stats.get("completed_routines", 0)
+    level_up_count = sum(
+        1 for item in progression
+        if _calc_progression_suggestion(
+            [], user  # 간략 판단: progression에 sessions >= 2 조건은 이미 충족된 항목
+        )[0] != "→ 현행 유지"
+    )
+    # progression 목록에서 실제로 레벨업 권장인 운동 수 계산
+    level_up_count = 0
+    for item in progression:
+        ex_name = item.get("exercise_name", "")
+        try:
+            history = api_get_exercise_history(uid, ex_name, limit=5)
+            status, _ = _calc_progression_suggestion(history, user)
+            if "레벨업" in status:
+                level_up_count += 1
+        except Exception:
+            pass
+    if completed >= 10 and level_up_count >= 3:
+        return True, level_label.get(current, current), level_label.get(next_level, next_level)
+    return False, level_label.get(current, current), level_label.get(next_level, next_level)
+
+
+def recommend_routine(user: dict, force_new: bool = False,
+                      condition_info: dict = None, recent_body_parts: list = None) -> dict:
     from openai import OpenAI
     if not force_new:
         existing = api_get_today_routine(user["id"])
@@ -605,12 +819,15 @@ def recommend_routine(user: dict, force_new: bool = False) -> dict:
             }
 
     past = api_get_recent_exercises(user["id"])
-    progression_context = _build_progression_context_from_api(user["id"], past)
+    progression_context = _build_progression_context_from_api(user["id"], past, user)
     from rag.gym_rag import retrieve_gym_context
     gym_context = retrieve_gym_context(user["id"])
 
     exercise_list = _cached_exercise_list()
-    prompt = _build_routine_prompt(user, progression_context, gym_context, exercise_list)
+    prompt = _build_routine_prompt(
+        user, progression_context, gym_context, exercise_list,
+        condition_info=condition_info, recent_body_parts=recent_body_parts,
+    )
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     response = client.chat.completions.create(
         model="gpt-4o-mini",
@@ -631,17 +848,53 @@ def recommend_routine(user: dict, force_new: bool = False) -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 def page_recommend():
     user = st.session_state.user
+    uid = st.session_state.user_id
 
     _header("오늘의 운동 루틴", "AI가 설계한 맞춤 루틴")
     _back_btn()
+
+    # ── 컨디션 입력 (하루 1회, 날짜 키로 자동 만료) ──────────────────────────
+    cond_key = f"condition_{date.today()}"
+    if cond_key not in st.session_state:
+        st.markdown("### 오늘 컨디션을 알려주세요")
+        condition = st.select_slider(
+            "오늘 컨디션",
+            options=["매우 피곤", "피곤", "보통", "좋음", "최상"],
+            value="보통",
+        )
+        muscle_soreness = st.multiselect(
+            "근육통 있는 부위",
+            ["가슴", "등", "어깨", "팔", "복근", "허벅지", "종아리"],
+        )
+        if st.button("확인 — 루틴 생성하기", use_container_width=True):
+            st.session_state[cond_key] = {"condition": condition, "soreness": muscle_soreness}
+            st.rerun()
+        return
+
+    condition_info = st.session_state[cond_key]
+
+    # ── 레벨업 제안 배너 ──────────────────────────────────────────────────────
+    should_level_up, cur_label, next_label = _check_level_up_suggestion(user, uid)
+    if should_level_up:
+        col_msg, col_btn = st.columns([3, 1])
+        with col_msg:
+            st.info(f"운동 실력이 많이 늘었어요! 체력 수준을 **{cur_label}**에서 **{next_label}**로 올려볼까요?")
+        with col_btn:
+            if st.button("프로필 수정하기", key="level_up_btn"):
+                nav("profile_edit")
 
     # ── 루틴 생성 / 캐시 로드 ──
     force_new = st.session_state.pop("force_new_routine", False)
     result = st.session_state.today_result
     if result is None:
+        recent_body_parts = _get_recent_body_parts(uid)
         with st.spinner("AI가 루틴을 설계하고 있어요... ✨"):
             try:
-                result = recommend_routine(user, force_new=force_new)
+                result = recommend_routine(
+                    user, force_new=force_new,
+                    condition_info=condition_info,
+                    recent_body_parts=recent_body_parts,
+                )
                 st.session_state.today_result = result
             except Exception as e:
                 st.error(f"루틴 생성 중 오류가 발생했습니다: {e}")
@@ -942,16 +1195,23 @@ def page_log():
     st.markdown("<br>", unsafe_allow_html=True)
 
     # ── 운동 칩 목록 ──
+    c_chip_done = _C['chip_done_bg']
+    c_chip_cur = _C['chip_cur_color']
+    c_chip_cur_border = _C['chip_cur_border']
+    c_shadow2 = _C['shadow2']
+    c_badge_shadow = _C['badge_shadow']
+    c_chip_none = _C['chip_none_color']
+    c_chip_none_border = _C['chip_none_border']
     chip_html = "<div style='display:flex; flex-wrap:wrap; gap:6px; margin-bottom:1.3rem'>"
     for i, ex in enumerate(exercises):
         is_done = ex["name"] in logged
         is_current = i == idx and not is_done
         if is_done:
-            chip_html += f"<span style='background:{_C['chip_done_bg']}; color:#fff; border-radius:20px; padding:5px 14px; font-size:0.8rem; font-weight:600; box-shadow:0 2px 8px {_C['badge_shadow']};'>✓ {ex['name']}</span>"
+            chip_html += f"<span style='background:{c_chip_done}; color:#fff; border-radius:20px; padding:5px 14px; font-size:0.8rem; font-weight:600; box-shadow:0 2px 8px {c_badge_shadow};'>✓ {ex['name']}</span>"
         elif is_current:
-            chip_html += f"<span style='background:rgba(255,255,255,0.95); color:{_C['chip_cur_color']}; border:2px solid {_C['chip_cur_border']}; border-radius:20px; padding:5px 14px; font-size:0.8rem; font-weight:700; box-shadow:0 2px 10px {_C['shadow2']};'>{ex['name']}</span>"
+            chip_html += f"<span style='background:rgba(255,255,255,0.95); color:{c_chip_cur}; border:2px solid {c_chip_cur_border}; border-radius:20px; padding:5px 14px; font-size:0.8rem; font-weight:700; box-shadow:0 2px 10px {c_shadow2};'>{ex['name']}</span>"
         else:
-            chip_html += f"<span style='background:rgba(255,255,255,0.45); color:{_C['chip_none_color']}; border:1px solid {_C['chip_none_border']}; border-radius:20px; padding:5px 14px; font-size:0.8rem; font-weight:400;'>{ex['name']}</span>"
+            chip_html += f"<span style='background:rgba(255,255,255,0.45); color:{c_chip_none}; border:1px solid {c_chip_none_border}; border-radius:20px; padding:5px 14px; font-size:0.8rem; font-weight:400;'>{ex['name']}</span>"
     chip_html += "</div>"
     st.markdown(chip_html, unsafe_allow_html=True)
 
@@ -1002,56 +1262,80 @@ def page_log():
 
     # ── 현재 운동 기록 폼 ──
     ex = exercises[idx]
+    is_cardio = ex.get("category") == "유산소"
     weight_hint = (
         f"{ex.get('weight_kg', 0)} kg 권장"
         if ex.get("weight_kg", 0) > 0
         else "자체중량"
     )
 
+    # 따옴표 충돌 방지: _C 값을 미리 변수로 꺼냄
+    c_log_bg = _C['log_card_bg']
+    c_text_sub = _C['text_sub']
+    c_chip = _C['chip_none_color']
+    c_stat = _C['stat_grad']
+    c_reps = _C['reps_grad']
+    badge_html = _badge(ex.get("category", ""), "gray")
+
+    if is_cardio:
+        duration_target = ex.get("duration_min", 30)
+        speed_info = f" · {ex.get('speed_kmh', 0)}km/h" if ex.get("speed_kmh", 0) > 0 else ""
+        incline_info = f" · 경사 {ex.get('incline_pct', 0)}%" if ex.get("incline_pct", 0) > 0 else ""
+        goal_html = (
+            f"<div><span style='font-size:1.6rem; font-weight:800; background:{c_stat};"
+            f"-webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;'>{duration_target}</span>"
+            f"<span style='color:{c_text_sub}; font-size:0.85rem; font-weight:500'> 분 목표</span></div>"
+            f"<div><span style='font-size:1.2rem; font-weight:600; color:{c_text_sub}'>{speed_info}{incline_info}</span></div>"
+        )
+    else:
+        goal_html = (
+            f"<div><span style='font-size:1.6rem; font-weight:800; background:{c_stat};"
+            f"-webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;'>{ex.get('sets', 3)}</span>"
+            f"<span style='color:{c_text_sub}; font-size:0.85rem; font-weight:500'> 세트 목표</span></div>"
+            f"<div><span style='font-size:1.6rem; font-weight:800; background:{c_reps};"
+            f"-webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;'>{ex.get('reps', 12)}</span>"
+            f"<span style='color:{c_text_sub}; font-size:0.85rem; font-weight:500'> 회 목표</span></div>"
+            f"<div><span style='font-size:1.2rem; font-weight:600; color:{c_text_sub}'>{weight_hint}</span></div>"
+        )
+
     st.markdown(
-        f"""
-        <div class='card' style='margin-bottom:1rem; background:{_C['log_card_bg']};'>
-            <div style='margin-bottom:0.6rem; display:flex; align-items:center; gap:8px;'>
-                {_badge(ex.get("category", ""), "gray")}
-                <span style='font-size:0.8rem; color:{_C['chip_none_color']}; font-weight:500'>{idx+1} / {total}</span>
-            </div>
-            <h2 style='margin:0 0 5px; font-size:1.6rem; color:#1a1a2e;'>{ex['name']}</h2>
-            <p style='color:{_C['text_sub']}; margin:0 0 1rem; font-size:0.9rem; line-height:1.6'>{ex.get('tip','')}</p>
-            <div style='display:flex; gap:2rem'>
-                <div>
-                    <span style='font-size:1.6rem; font-weight:800; background:{_C['stat_grad']};
-                                 -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;'>{ex.get("sets", 3)}</span>
-                    <span style='color:{_C['text_sub']}; font-size:0.85rem; font-weight:500'> 세트 목표</span>
-                </div>
-                <div>
-                    <span style='font-size:1.6rem; font-weight:800; background:{_C['reps_grad']};
-                                 -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;'>{ex.get("reps", 12)}</span>
-                    <span style='color:{_C['text_sub']}; font-size:0.85rem; font-weight:500'> 회 목표</span>
-                </div>
-                <div>
-                    <span style='font-size:1.2rem; font-weight:600; color:{_C['text_sub']}'>{weight_hint}</span>
-                </div>
-            </div>
-        </div>
-        """,
+        f"<div class='card' style='margin-bottom:1rem; background:{c_log_bg};'>"
+        f"<div style='margin-bottom:0.6rem; display:flex; align-items:center; gap:8px;'>"
+        f"{badge_html}"
+        f"<span style='font-size:0.8rem; color:{c_chip}; font-weight:500'>{idx+1} / {total}</span>"
+        f"</div>"
+        f"<h2 style='margin:0 0 5px; font-size:1.6rem; color:#1a1a2e;'>{ex['name']}</h2>"
+        f"<p style='color:{c_text_sub}; margin:0 0 1rem; font-size:0.9rem; line-height:1.6'>{ex.get('tip', '')}</p>"
+        f"<div style='display:flex; gap:2rem'>{goal_html}</div>"
+        f"</div>",
         unsafe_allow_html=True,
     )
 
     with st.form(f"log_form_{idx}"):
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            sets_done = st.number_input("실제 세트 수", 0, 20, int(ex.get("sets", 3)))
-        with c2:
-            reps_done = st.number_input("실제 횟수 (회)", 0, 200, int(ex.get("reps", 12)))
-        with c3:
-            weight_done = st.number_input(
-                "사용 무게 (kg, 자체중량=0)",
-                0.0,
-                500.0,
-                float(ex.get("weight_kg", 0)),
-                0.5,
-            )
-        note = st.text_input("메모 (선택)", placeholder="예: 허리 주의, 폼 개선 필요")
+        if is_cardio:
+            c1, c2 = st.columns(2)
+            with c1:
+                duration_done = st.number_input("실제 운동 시간 (분)", 0, 300, int(ex.get("duration_min", 30)))
+            with c2:
+                note = st.text_input("메모 (선택)", placeholder="예: 트레드밀 6.5km/h, 중간에 잠깐 쉬었음")
+            sets_done = 0
+            reps_done = duration_done
+            weight_done = 0.0
+        else:
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                sets_done = st.number_input("실제 세트 수", 0, 20, int(ex.get("sets", 3)))
+            with c2:
+                reps_done = st.number_input("실제 횟수 (회)", 0, 200, int(ex.get("reps", 12)))
+            with c3:
+                weight_done = st.number_input(
+                    "사용 무게 (kg, 자체중량=0)",
+                    0.0,
+                    500.0,
+                    float(ex.get("weight_kg", 0)),
+                    0.5,
+                )
+            note = st.text_input("메모 (선택)", placeholder="예: 허리 주의, 폼 개선 필요")
 
         submitted = st.form_submit_button("기록하고 다음으로 →")
         if submitted:
@@ -1180,22 +1464,14 @@ def page_dashboard():
         for _, item in df_prog.iterrows():
             ex_name = item.get("exercise_name", "")
             history = api_get_exercise_history(uid, ex_name, limit=5)
-            sessions = len(history)
-            avg_reps = sum(h["reps_done"] for h in history) / sessions if sessions else 0
-            last = history[0] if history else {}
-            ready = sessions >= 2 and last.get("sets_done", 0) >= 3 and avg_reps >= 11.0
-            if ready:
-                next_w = round(last.get("weight_kg", 0) * 1.075, 1)
-                suggestion = f"무게를 {next_w}kg으로 늘려보세요" if last.get("weight_kg", 0) > 0 else f"횟수를 {int(avg_reps)+2}회로 늘려보세요"
-            else:
-                suggestion = "현재 무게와 횟수를 유지하세요"
+            status, suggestion = _calc_progression_suggestion(history, user)
             rows.append(
                 {
                     "운동": ex_name,
                     "총 세션": item.get("total_sessions", 0),
                     "최대 중량(kg)": item.get("max_weight", 0),
                     "최대 횟수": item.get("max_reps", 0),
-                    "상태": "⬆️ 레벨업 권장" if ready else "→ 유지",
+                    "상태": status.replace("⬆", "⬆️"),
                     "다음 목표": suggestion,
                 }
             )
@@ -1243,6 +1519,79 @@ def page_dashboard():
         st.markdown(
             "<p style='color:#aaa'>최근 기록이 없어요.</p>", unsafe_allow_html=True
         )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PAGE: PROFILE EDIT
+# ══════════════════════════════════════════════════════════════════════════════
+def page_profile_edit():
+    user = st.session_state.user
+    uid = st.session_state.user_id
+
+    _header("내 프로필 수정", "체중·목표·부상 정보를 업데이트해요")
+    _back_btn()
+
+    _GOAL_OPTIONS = ["체중감량", "근육증가", "체력향상", "건강유지", "재활/부상회복"]
+    _INJURY_OPTIONS = ["허리 통증/부상", "무릎 통증/부상", "어깨 통증/부상", "손목 통증/부상", "없음"]
+    _LEVEL_OPTIONS = ["beginner", "intermediate", "advanced"]
+    _LEVEL_LABELS = {"beginner": "초보자", "intermediate": "중급자", "advanced": "고급자"}
+
+    current_goals = [g.strip() for g in (user.get("goal") or "").split(",") if g.strip() in _GOAL_OPTIONS]
+    current_injuries = [t.strip() for t in (user.get("injury_tags") or "").split(",") if t.strip() in _INJURY_OPTIONS]
+    if not current_injuries:
+        current_injuries = ["없음"]
+
+    with st.form("profile_edit_form"):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            weight_kg = st.number_input("몸무게 (kg)", 30.0, 200.0, float(user.get("weight_kg") or 65.0), 0.1)
+        with c2:
+            height_cm = st.number_input("키 (cm)", 100.0, 250.0, float(user.get("height_cm") or 170.0), 0.1)
+        with c3:
+            age = st.number_input("나이", 10, 100, int(user.get("age") or 25))
+
+        cur_level_idx = _LEVEL_OPTIONS.index(user.get("fitness_level", "beginner")) if user.get("fitness_level") in _LEVEL_OPTIONS else 0
+        fitness_level = st.selectbox(
+            "체력 수준",
+            _LEVEL_OPTIONS,
+            index=cur_level_idx,
+            format_func=lambda x: _LEVEL_LABELS[x],
+        )
+
+        goals = st.multiselect("운동 목표 (복수 선택 가능)", _GOAL_OPTIONS, default=current_goals)
+
+        injury_tags_sel = st.multiselect(
+            "부상/통증 부위 (해당 없으면 '없음')",
+            _INJURY_OPTIONS,
+            default=current_injuries,
+        )
+
+        health_notes = st.text_area(
+            "건강 특이사항 (자유 입력)",
+            value=user.get("health_notes") or "",
+            placeholder="예: 고혈압, 디스크 수술 이력 등",
+        )
+
+        submitted = st.form_submit_button("저장하기", use_container_width=True)
+
+    if submitted:
+        injury_str = ", ".join(t for t in injury_tags_sel if t != "없음")
+        goal_str = ", ".join(goals)
+        try:
+            updated = api_update_profile(
+                uid,
+                weight_kg=weight_kg,
+                height_cm=height_cm,
+                age=age,
+                fitness_level=fitness_level,
+                goal=goal_str,
+                health_notes=health_notes,
+                injury_tags=injury_str or None,
+            )
+            st.session_state.user = dict(updated)
+            st.success("프로필이 저장되었습니다.")
+        except Exception as e:
+            st.error(f"저장 실패: {e}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1380,6 +1729,7 @@ _PAGES = {
     "log": page_log,
     "dashboard": page_dashboard,
     "gym": page_gym,
+    "profile_edit": page_profile_edit,
 }
 
 _PAGES[st.session_state.page]()

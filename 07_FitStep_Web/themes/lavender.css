@@ -232,3 +232,17 @@ section[data-testid="stSidebar"] { display: none !important; }
     border: 1px solid rgba(123, 104, 200, 0.15) !important;
     background: rgba(255,255,255,0.6) !important;
 }
+
+/* ── Multiselect 태그 (보라 테마) ── */
+[data-testid="stMultiSelect"] span[data-baseweb="tag"] {
+    background: linear-gradient(135deg, #2d2d6b 0%, #4a3880 100%) !important;
+    border: none !important;
+    border-radius: 20px !important;
+}
+[data-testid="stMultiSelect"] span[data-baseweb="tag"] span {
+    color: #ffffff !important;
+    font-weight: 600 !important;
+}
+[data-testid="stMultiSelect"] span[data-baseweb="tag"] button svg {
+    fill: rgba(255,255,255,0.8) !important;
+}
