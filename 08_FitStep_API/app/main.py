@@ -93,7 +93,29 @@ def post_chat(body: ChatRequest):
     if exercise_context:
         context_parts.append(f"[추천 운동 정보]\n{exercise_context}")
 
-    system_prompt = "당신은 개인 맞춤형 운동 처방 전문가입니다. 아래 컨텍스트를 바탕으로 사용자에게 맞는 운동 조언을 제공하세요.\n\n"
+    # 기본 지시
+    system_prompt = (
+        "당신은 개인 맞춤형 운동 처방 전문가입니다. "
+        "아래 컨텍스트와 답변 규칙을 반드시 따라 사용자에게 맞는 운동 조언을 제공하세요.\n\n"
+        "[답변 규칙]\n"
+        "1. 사용자의 나이대·성별·BMI 등급을 답변 첫 문장에 반드시 언급하세요. "
+        "(예: '30대 여성 BMI 과체중이신 경우...')\n"
+        "2. 반드시 구체적인 운동명을 1개 이상 포함하세요. "
+        "(예: 스쿼트, 걷기, 수영 등 — '운동을 하세요' 같은 막연한 표현 금지)\n"
+    )
+
+    # 고령(60대+) 또는 고도비만이면 안전 주의 지시 추가
+    age_group = body.age_group or ""
+    bmi_grade = body.bmi_grade or ""
+    is_high_risk = age_group in ("60대", "70대", "80대") or bmi_grade == "고도비만"
+    if is_high_risk:
+        system_prompt += (
+            "3. 고령 또는 고도비만 사용자이므로 관절 부담·안전에 대한 주의 문구를 반드시 포함하세요. "
+            "(예: '관절에 무리가 가지 않도록', '천천히 강도를 높이세요', '무리하지 마세요')\n"
+        )
+
+    system_prompt += "\n"
+
     if context_parts:
         system_prompt += "\n\n".join(context_parts)
     else:

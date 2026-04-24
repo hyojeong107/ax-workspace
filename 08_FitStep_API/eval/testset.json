@@ -1,0 +1,212 @@
+[
+  {
+    "id": "tc_001",
+    "description": "30대 여성 과체중 초보자 기본 케이스",
+    "input": {
+      "age": 35,
+      "gender": "F",
+      "bmi": 25.0,
+      "age_group": "30대",
+      "bmi_grade": "과체중"
+    },
+    "question": "30대 여성 BMI 25 초보자에게 맞는 운동은?",
+    "ground_truth": "30대 여성 BMI 25 과체중 초보자는 저강도 유산소 운동(걷기, 자전거)과 기초 근력 운동을 병행하는 것이 좋습니다. 주 3~4회, 하루 30~40분부터 시작하고 강도를 점진적으로 높이세요.",
+    "relevant_keywords": ["유산소", "근력", "주", "회", "분", "30대", "과체중"],
+    "required_keywords": ["유산소", "근력"],
+    "rules": {
+      "expect_mentions_user_profile": true,
+      "expect_mentions_exercise_name": true,
+      "expect_safety_caution": false,
+      "expect_personalization": true
+    }
+  },
+  {
+    "id": "tc_002",
+    "description": "60대 남성 정상체중 유산소 특화 — 안전주의 필요",
+    "input": {
+      "age": 65,
+      "gender": "M",
+      "bmi": 24.0,
+      "age_group": "60대",
+      "bmi_grade": "정상"
+    },
+    "question": "60대 남성 체력 4등급의 유산소 운동 추천은?",
+    "ground_truth": "60대 남성 체력 4등급은 저강도 유산소 운동이 적합합니다. 관절에 무리가 가지 않도록 빠르게 걷기, 수영, 고정식 자전거를 주 3회 이상 권장합니다.",
+    "relevant_keywords": ["유산소", "걷기", "수영", "자전거", "주", "회", "60대"],
+    "required_keywords": ["유산소", "걷기"],
+    "rules": {
+      "expect_mentions_user_profile": true,
+      "expect_mentions_exercise_name": true,
+      "expect_safety_caution": true,
+      "expect_personalization": true
+    }
+  },
+  {
+    "id": "tc_003",
+    "description": "40대 여성 비만 체중감량",
+    "input": {
+      "age": 42,
+      "gender": "F",
+      "bmi": 28.0,
+      "age_group": "40대",
+      "bmi_grade": "비만"
+    },
+    "question": "40대 여성 BMI 28 비만인 경우 체중 감량 운동 계획은?",
+    "ground_truth": "40대 여성 비만은 유산소 운동과 근력 운동을 병행해야 합니다. 주 5회 유산소 30분과 주 3회 전신 근력 운동을 권장하며 식이 조절을 함께 진행하세요.",
+    "relevant_keywords": ["유산소", "근력", "주", "회", "분", "비만", "40대", "체중"],
+    "required_keywords": ["유산소", "근력"],
+    "rules": {
+      "expect_mentions_user_profile": true,
+      "expect_mentions_exercise_name": true,
+      "expect_safety_caution": false,
+      "expect_personalization": true
+    }
+  },
+  {
+    "id": "tc_004",
+    "description": "20대 남성 정상체중 근력 중급자",
+    "input": {
+      "age": 25,
+      "gender": "M",
+      "bmi": 22.0,
+      "age_group": "20대",
+      "bmi_grade": "정상"
+    },
+    "question": "20대 남성 BMI 22 중급자에게 적합한 근력 운동 루틴은?",
+    "ground_truth": "20대 남성 정상체중 중급자는 주 4~5회 분할 근력 훈련이 적합합니다. 스쿼트, 데드리프트, 벤치프레스 등 복합 운동 중심으로 진행하세요.",
+    "relevant_keywords": ["근력", "스쿼트", "데드리프트", "주", "회", "20대"],
+    "required_keywords": ["근력", "스쿼트"],
+    "rules": {
+      "expect_mentions_user_profile": true,
+      "expect_mentions_exercise_name": true,
+      "expect_safety_caution": false,
+      "expect_personalization": true
+    }
+  },
+  {
+    "id": "tc_005",
+    "description": "70대 여성 낙상 예방 — 안전주의 필요",
+    "input": {
+      "age": 72,
+      "gender": "F",
+      "bmi": 22.5,
+      "age_group": "70대",
+      "bmi_grade": "정상"
+    },
+    "question": "70대 여성의 낙상 예방을 위한 운동은?",
+    "ground_truth": "70대 여성은 낙상 예방을 위해 균형 감각 훈련이 핵심입니다. 관절에 무리가 가지 않도록 한 발 서기, 의자를 이용한 스쿼트 등을 주 3회 실시하고 하체 근력을 유지하세요.",
+    "relevant_keywords": ["균형", "낙상", "하체", "근력", "주", "회", "70대"],
+    "required_keywords": ["균형", "하체"],
+    "rules": {
+      "expect_mentions_user_profile": true,
+      "expect_mentions_exercise_name": true,
+      "expect_safety_caution": true,
+      "expect_personalization": true
+    }
+  },
+  {
+    "id": "tc_006",
+    "description": "30대 남성 고도비만 운동 시작 — 안전주의 필요",
+    "input": {
+      "age": 33,
+      "gender": "M",
+      "bmi": 31.5,
+      "age_group": "30대",
+      "bmi_grade": "고도비만"
+    },
+    "question": "30대 남성 BMI 30 이상 고도비만의 운동 시작 방법은?",
+    "ground_truth": "30대 남성 고도비만은 관절 보호를 위해 수영, 고정식 자전거 등 충격이 적은 운동부터 시작해야 합니다. 처음 4주는 주 3회 20분, 이후 점진적으로 늘려가세요.",
+    "relevant_keywords": ["수영", "자전거", "관절", "주", "회", "분"],
+    "required_keywords": ["수영", "자전거"],
+    "rules": {
+      "expect_mentions_user_profile": true,
+      "expect_mentions_exercise_name": true,
+      "expect_safety_caution": true,
+      "expect_personalization": true
+    }
+  },
+  {
+    "id": "tc_007",
+    "description": "50대 여성 갱년기 골밀도",
+    "input": {
+      "age": 53,
+      "gender": "F",
+      "bmi": 26.0,
+      "age_group": "50대",
+      "bmi_grade": "과체중"
+    },
+    "question": "50대 여성 BMI 26 갱년기 골밀도 향상 운동은?",
+    "ground_truth": "50대 여성 갱년기에는 골밀도 감소 방지를 위해 체중 부하 운동이 중요합니다. 빠른 걷기, 계단 오르기와 주 2~3회 하체 근력 운동을 병행하세요.",
+    "relevant_keywords": ["골밀도", "걷기", "근력", "하체", "주", "회", "50대"],
+    "required_keywords": ["골밀도", "걷기"],
+    "rules": {
+      "expect_mentions_user_profile": true,
+      "expect_mentions_exercise_name": true,
+      "expect_safety_caution": false,
+      "expect_personalization": true
+    }
+  },
+  {
+    "id": "tc_008",
+    "description": "20대 여성 저체중 근육량 증가",
+    "input": {
+      "age": 23,
+      "gender": "F",
+      "bmi": 18.0,
+      "age_group": "20대",
+      "bmi_grade": "저체중"
+    },
+    "question": "20대 여성 BMI 18 저체중의 근육량 증가 운동은?",
+    "ground_truth": "20대 여성 저체중은 근육량 증가가 우선입니다. 주 3~4회 전신 근력 운동과 충분한 단백질 섭취가 필수이며 유산소는 주 1~2회로 최소화하세요.",
+    "relevant_keywords": ["근력", "단백질", "저체중", "주", "회", "20대"],
+    "required_keywords": ["근력", "단백질"],
+    "rules": {
+      "expect_mentions_user_profile": true,
+      "expect_mentions_exercise_name": true,
+      "expect_safety_caution": false,
+      "expect_personalization": true
+    }
+  },
+  {
+    "id": "tc_009",
+    "description": "50대 남성 정상체중 유연성",
+    "input": {
+      "age": 52,
+      "gender": "M",
+      "bmi": 23.0,
+      "age_group": "50대",
+      "bmi_grade": "정상"
+    },
+    "question": "50대 남성 BMI 23 체력 2등급의 유연성 향상 운동은?",
+    "ground_truth": "50대 남성 체력 2등급은 스트레칭과 요가를 통한 유연성 훈련이 효과적입니다. 매일 10~15분 정적 스트레칭과 주 2~3회 요가를 권장합니다.",
+    "relevant_keywords": ["스트레칭", "요가", "유연성", "매일", "주", "분", "50대"],
+    "required_keywords": ["스트레칭", "유연성"],
+    "rules": {
+      "expect_mentions_user_profile": true,
+      "expect_mentions_exercise_name": true,
+      "expect_safety_caution": false,
+      "expect_personalization": true
+    }
+  },
+  {
+    "id": "tc_010",
+    "description": "40대 남성 과체중 직장인 주 3회",
+    "input": {
+      "age": 45,
+      "gender": "M",
+      "bmi": 25.0,
+      "age_group": "40대",
+      "bmi_grade": "과체중"
+    },
+    "question": "40대 남성 BMI 25 직장인 주 3회 운동 루틴은?",
+    "ground_truth": "40대 남성 과체중 직장인은 주 3회 전신 복합 운동이 효율적입니다. 데드리프트, 벤치프레스 등 복합 운동 45~60분과 유산소 인터벌을 병행하세요.",
+    "relevant_keywords": ["복합", "유산소", "주", "분", "데드리프트", "40대"],
+    "required_keywords": ["유산소", "데드리프트"],
+    "rules": {
+      "expect_mentions_user_profile": true,
+      "expect_mentions_exercise_name": true,
+      "expect_safety_caution": false,
+      "expect_personalization": true
+    }
+  }
+]
