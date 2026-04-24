@@ -1,8 +1,10 @@
-"""Retrieval — ChromaDB 벡터 검색 + Contextual BM25 + RRF Hybrid Search"""
+"""Retrieval — ChromaDB 벡터 검색 + Contextual BM25 + RRF Hybrid Search + Reranking"""
 
 import json
 import os
 import pickle
+
+from flashrank import Ranker, RerankRequest
 
 from app.indexing import _get_gym_store, _get_fitness_store, _get_exercise_store
 
@@ -13,7 +15,28 @@ BM25_EXERCISE_PATH = os.path.join(DATA_DIR, "bm25_exercise.pkl")
 RRF_K = 60
 VECTOR_TOP_K = 10
 BM25_TOP_K = 10
-FINAL_TOP_K = 5
+RRF_TOP_K = 10   # RRF 후 reranker에 넘길 후보 수
+FINAL_TOP_K = 3  # reranker 후 최종 반환 수
+
+_reranker: Ranker | None = None
+
+
+def _get_reranker() -> Ranker:
+    global _reranker
+    if _reranker is None:
+        _reranker = Ranker(model_name="ms-marco-MiniLM-L-12-v2")
+    return _reranker
+
+
+def _rerank(query: str, docs: list[str], top_k: int) -> list[str]:
+    if not docs:
+        return docs
+    ranker = _get_reranker()
+    passages = [{"id": i, "text": text} for i, text in enumerate(docs)]
+    request = RerankRequest(query=query, passages=passages)
+    results = ranker.rerank(request)
+    ranked = sorted(results, key=lambda r: r["score"], reverse=True)
+    return [docs[r["id"]] for r in ranked[:top_k]]
 
 
 def _tokenize(text: str) -> list[str]:
@@ -98,10 +121,9 @@ def retrieve_fitness_context(age: int, gender: str, bmi: float) -> str:
             top_bm25_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:BM25_TOP_K]
             bm25_ids = [str(i) for i in top_bm25_indices]
 
-            # 3. RRF 융합
-            fused_ids = _rrf_fusion(vector_ids, bm25_ids)[:FINAL_TOP_K]
+            # 3. RRF 융합 → 상위 10개 후보
+            fused_ids = _rrf_fusion(vector_ids, bm25_ids)[:RRF_TOP_K]
 
-            # 벡터 결과 + BM25 결과를 인덱스로 매핑해 최종 문서 구성
             all_docs: dict[str, str] = {}
             for i, doc in enumerate(vector_docs):
                 all_docs[str(i)] = doc.page_content
@@ -109,10 +131,12 @@ def retrieve_fitness_context(age: int, gender: str, bmi: float) -> str:
                 if str(i) not in all_docs:
                     all_docs[str(i)] = texts[i]
 
-            result_docs = [all_docs[fid] for fid in fused_ids if fid in all_docs]
+            candidates = [all_docs[fid] for fid in fused_ids if fid in all_docs]
         else:
-            # BM25 인덱스 없으면 벡터 검색만 사용
-            result_docs = [doc.page_content for doc in vector_docs[:FINAL_TOP_K]]
+            candidates = [doc.page_content for doc in vector_docs[:RRF_TOP_K]]
+
+        # 4. Reranking → 최종 상위 3개
+        result_docs = _rerank(query, candidates, FINAL_TOP_K)
 
         if not result_docs:
             return ""
@@ -156,8 +180,8 @@ def retrieve_exercise_recommendation(age_group: str, gender: str, bmi_grade: str
             top_bm25_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:BM25_TOP_K]
             bm25_ids = [str(i) for i in top_bm25_indices]
 
-            # 3. RRF 융합
-            fused_ids = _rrf_fusion(vector_ids, bm25_ids)[:FINAL_TOP_K]
+            # 3. RRF 융합 → 상위 10개 후보
+            fused_ids = _rrf_fusion(vector_ids, bm25_ids)[:RRF_TOP_K]
 
             all_docs: dict[str, str] = {}
             for i, doc in enumerate(vector_docs):
@@ -166,9 +190,12 @@ def retrieve_exercise_recommendation(age_group: str, gender: str, bmi_grade: str
                 if str(i) not in all_docs:
                     all_docs[str(i)] = texts[i]
 
-            result_docs = [all_docs[fid] for fid in fused_ids if fid in all_docs]
+            candidates = [all_docs[fid] for fid in fused_ids if fid in all_docs]
         else:
-            result_docs = [doc.page_content for doc in vector_docs[:FINAL_TOP_K]]
+            candidates = [doc.page_content for doc in vector_docs[:RRF_TOP_K]]
+
+        # 4. Reranking → 최종 상위 3개
+        result_docs = _rerank(query, candidates, FINAL_TOP_K)
 
         if not result_docs:
             return ""
