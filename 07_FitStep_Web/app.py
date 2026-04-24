@@ -1039,10 +1039,16 @@ def page_recommend():
 
     # ── 개인화 근거 뱃지 ──
     bmi_val = round(user["weight_kg"] / ((user["height_cm"] / 100) ** 2), 1)
-    bmi_grade_disp = rag_ctx.get("bmi_grade") or ("비만" if bmi_val >= 25 else "정상")
+    def _bmi_grade(bmi):
+        if bmi < 18.5: return "저체중"
+        if bmi < 23:   return "정상"
+        if bmi < 25:   return "과체중"
+        if bmi < 30:   return "비만"
+        return "고도비만"
+    bmi_grade_disp = rag_ctx.get("bmi_grade") or _bmi_grade(bmi_val)
     age_group_disp = rag_ctx.get("age_group") or f"{(user['age'] // 10) * 10}대"
     has_public_data = bool(rag_ctx.get("fitness_context") or rag_ctx.get("exercise_context"))
-    is_high_risk = rag_ctx.get("is_high_risk", False)
+    is_high_risk = rag_ctx.get("is_high_risk") or bmi_grade_disp == "고도비만" or user.get("age", 0) >= 60
 
     badges = [
         f"👤 {age_group_disp} · BMI {bmi_val} ({bmi_grade_disp})",
@@ -1053,11 +1059,11 @@ def page_recommend():
     if is_high_risk:
         badges.append("⚠️ 고령/고도비만 — 저충격·안전 우선 루틴")
 
-    badge_html = " &nbsp;|&nbsp; ".join(
-        f"<span style='background:rgba(120,120,120,0.13); border-radius:20px; padding:4px 12px; font-size:0.82rem; color:#888;'>{b}</span>"
+    badge_html = " &nbsp; ".join(
+        f"<span style='background:rgba(80,80,80,0.1); border:1px solid rgba(0,0,0,0.12); border-radius:20px; padding:6px 14px; font-size:0.9rem; font-weight:600; color:#333; white-space:nowrap;'>{b}</span>"
         for b in badges
     )
-    st.markdown(f"<div style='margin:8px 0 16px; line-height:2.2;'>{badge_html}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='margin:10px 0 20px; display:flex; flex-wrap:wrap; gap:8px; line-height:1;'>{badge_html}</div>", unsafe_allow_html=True)
 
     # ── 요약 메트릭 ──
     categories = [ex.get("category", "") for ex in exercises]
