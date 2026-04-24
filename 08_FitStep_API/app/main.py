@@ -2,7 +2,7 @@
 
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.staticfiles import StaticFiles
-from app.schemas import IndexRequest, IndexResponse, RetrieveResponse, ExistsResponse, GymDataResponse, ChatRequest, ChatResponse
+from app.schemas import IndexRequest, IndexResponse, RetrieveResponse, ExistsResponse, GymDataResponse, ChatRequest, ChatResponse, RagContextRequest, RagContextResponse
 from app.auth import verify_api_key
 from app.indexing import index_gym
 from app.retrieval import retrieve_context, gym_exists, get_gym_data, retrieve_fitness_context, retrieve_exercise_recommendation
@@ -136,3 +136,18 @@ def post_chat(body: ChatRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
     return ChatResponse(user_id=body.user_id, answer=answer)
+
+
+@app.post("/rag/context", response_model=RagContextResponse, dependencies=[Depends(verify_api_key)])
+def get_rag_context(body: RagContextRequest):
+    """루틴 추천용 공공데이터 RAG 컨텍스트만 반환합니다 (GPT 호출 없음)."""
+    fitness_ctx = retrieve_fitness_context(body.age, body.gender, body.bmi)
+    exercise_ctx = retrieve_exercise_recommendation(body.age_group, body.gender, body.bmi_grade)
+    is_high_risk = body.age_group in ("60대", "70대", "80대") or body.bmi_grade == "고도비만"
+    return RagContextResponse(
+        fitness_context=fitness_ctx,
+        exercise_context=exercise_ctx,
+        bmi_grade=body.bmi_grade,
+        age_group=body.age_group,
+        is_high_risk=is_high_risk,
+    )

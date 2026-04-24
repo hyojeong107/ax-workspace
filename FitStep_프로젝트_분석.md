@@ -304,6 +304,7 @@ def _h() -> dict:
 | `api_save_log()` | POST /db/logs | 운동 기록 저장 |
 | `api_get_stats()` | GET /db/logs/stats/{uid} | 종합 통계 |
 | `api_get_progression()` | GET /db/logs/progression/{uid} | 운동별 성장현황 |
+| `api_get_rag_context()` | POST /rag/context | 공공데이터 RAG 컨텍스트 조회 (GPT 호출 없음) |
 
 ### app.py - Streamlit 앱 구조
 

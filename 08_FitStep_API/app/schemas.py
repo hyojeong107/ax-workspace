@@ -59,3 +59,20 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     user_id: int
     answer: str
+
+
+class RagContextRequest(BaseModel):
+    user_id: int
+    age: int
+    gender: str
+    bmi: float
+    age_group: str
+    bmi_grade: str
+
+
+class RagContextResponse(BaseModel):
+    fitness_context: str
+    exercise_context: str
+    bmi_grade: str
+    age_group: str
+    is_high_risk: bool

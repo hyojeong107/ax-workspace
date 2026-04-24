@@ -147,3 +147,19 @@ def api_get_exercise_list():
     except Exception as e:
         print(f"Error fetching exercise list: {e}")
         return []
+
+def api_get_rag_context(user_id: int, age: int, gender: str, bmi: float,
+                        age_group: str, bmi_grade: str) -> dict:
+    """공공데이터 RAG 컨텍스트 반환 (체력측정 유사사례 + 운동추천, GPT 호출 없음)"""
+    try:
+        return _post("/rag/context", {
+            "user_id": user_id,
+            "age": age,
+            "gender": gender,
+            "bmi": bmi,
+            "age_group": age_group,
+            "bmi_grade": bmi_grade,
+        })
+    except Exception as e:
+        print(f"RAG context fetch error: {e}")
+        return {}

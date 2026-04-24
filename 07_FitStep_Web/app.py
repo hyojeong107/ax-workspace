@@ -40,7 +40,7 @@ from api_client import (
     api_save_log, api_get_logged_names, api_get_recent_logs,
     api_get_recent_exercises, api_get_stats, api_get_progression,
     api_get_exercise_history, api_get_exercise_gif, api_get_exercise_list,
-    api_update_profile,
+    api_update_profile, api_get_rag_context,
 )
 from rag.gym_rag import has_gym_data, save_gym_to_vector_db, get_gym_profile_from_api
 
@@ -483,7 +483,8 @@ def page_menu():
 # ROUTINE RECOMMENDATION LOGIC (uses API client instead of direct DB)
 # ══════════════════════════════════════════════════════════════════════════════
 def _build_routine_prompt(user: dict, progression_context: str, gym_context: str, exercise_list: list = None,
-                          condition_info: dict = None, recent_body_parts: list = None) -> str:
+                          condition_info: dict = None, recent_body_parts: list = None,
+                          rag_context: dict = None) -> str:
     fitness_labels = {"beginner": "초보자", "intermediate": "중급자", "advanced": "고급자"}
     level = fitness_labels.get(user["fitness_level"], user["fitness_level"])
     bmi = round(user["weight_kg"] / ((user["height_cm"] / 100) ** 2), 1)
@@ -579,16 +580,29 @@ def _build_routine_prompt(user: dict, progression_context: str, gym_context: str
         if goal_guides else ""
     )
 
+    # ── 공공데이터 RAG 섹션 ────────────────────────────────────────────────────
+    rag_section = ""
+    safety_rule = ""
+    if rag_context:
+        fitness_ctx = rag_context.get("fitness_context", "")
+        exercise_ctx = rag_context.get("exercise_context", "")
+        if fitness_ctx:
+            rag_section += f"\n[국민체육공단 체력측정 유사사례 — 이 사용자와 비슷한 연령/BMI 실측 데이터]\n{fitness_ctx}\n"
+        if exercise_ctx:
+            rag_section += f"\n[공공데이터 기반 추천 운동 — 동일 연령대/BMI/성별 공식 추천]\n{exercise_ctx}\n→ 위 추천 운동을 루틴에 우선적으로 반영하세요.\n"
+        if rag_context.get("is_high_risk"):
+            safety_rule = "\n[안전 주의 — 반드시 포함]\n- 고령 또는 고도비만 사용자입니다. advice 필드에 관절 보호·무리 금지·점진적 강도 증가에 대한 주의 문구를 반드시 작성하세요.\n"
+
     return f"""당신은 전문 헬스 트레이너입니다.
 아래 사용자 정보를 바탕으로 오늘의 헬스장 운동 루틴을 추천해주세요.
 
 [사용자 정보]
 - 나이: {user['age']}세 / 성별: {user['gender']}
-- 키: {user['height_cm']}cm / 몸무게: {user['weight_kg']}kg / BMI: {bmi}
+- 키: {user['height_cm']}cm / 몸무게: {user['weight_kg']}kg / BMI: {bmi} ({rag_context.get('bmi_grade', '') if rag_context else ''})
 - 체력 수준: {level}
 - 운동 목표: {user['goal']}
 - 건강 주의사항: {user['health_notes'] or '없음'}
-{prog_section}{injury_section}{condition_section}{avoid_section}{volume_guideline_section}{gym_section}{exercise_section}
+{prog_section}{injury_section}{condition_section}{avoid_section}{volume_guideline_section}{rag_section}{safety_rule}{gym_section}{exercise_section}
 [출력 규칙]
 1. 운동은 4~6개로 구성해주세요.
 2. 목표가 여러 개라면 각 목표에 맞는 운동을 균형있게 섞어주세요.
@@ -823,10 +837,28 @@ def recommend_routine(user: dict, force_new: bool = False,
     from rag.gym_rag import retrieve_gym_context
     gym_context = retrieve_gym_context(user["id"])
 
+    # 공공데이터 RAG 컨텍스트 수집
+    bmi = round(user["weight_kg"] / ((user["height_cm"] / 100) ** 2), 1)
+    age = user["age"]
+    gender = "M" if user["gender"] == "male" else "F"
+    age_group = f"{(age // 10) * 10}대"
+    if bmi < 18.5:
+        bmi_grade = "저체중"
+    elif bmi < 23:
+        bmi_grade = "정상"
+    elif bmi < 25:
+        bmi_grade = "과체중"
+    elif bmi < 30:
+        bmi_grade = "비만"
+    else:
+        bmi_grade = "고도비만"
+    rag_context = api_get_rag_context(user["id"], age, gender, bmi, age_group, bmi_grade)
+
     exercise_list = _cached_exercise_list()
     prompt = _build_routine_prompt(
         user, progression_context, gym_context, exercise_list,
         condition_info=condition_info, recent_body_parts=recent_body_parts,
+        rag_context=rag_context,
     )
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     response = client.chat.completions.create(
@@ -840,7 +872,7 @@ def recommend_routine(user: dict, force_new: bool = False,
     advice = data.get("advice", "")
 
     saved = api_save_routine(user["id"], json.dumps(exercises, ensure_ascii=False), advice)
-    return {"routine_id": saved["id"], "exercises": exercises, "advice": advice}
+    return {"routine_id": saved["id"], "exercises": exercises, "advice": advice, "rag_context": rag_context}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -902,6 +934,7 @@ def page_recommend():
 
     exercises = result.get("exercises", [])
     advice = result.get("advice", "")
+    rag_ctx = result.get("rag_context") or {}
 
     # ── AI 조언 버블 ──
     if advice:
@@ -909,6 +942,28 @@ def page_recommend():
             f"<div class='ai-bubble'>🤖 &nbsp; {advice}</div>",
             unsafe_allow_html=True,
         )
+
+    # ── 개인화 근거 뱃지 ──
+    bmi_val = round(user["weight_kg"] / ((user["height_cm"] / 100) ** 2), 1)
+    bmi_grade_disp = rag_ctx.get("bmi_grade") or ("비만" if bmi_val >= 25 else "정상")
+    age_group_disp = rag_ctx.get("age_group") or f"{(user['age'] // 10) * 10}대"
+    has_public_data = bool(rag_ctx.get("fitness_context") or rag_ctx.get("exercise_context"))
+    is_high_risk = rag_ctx.get("is_high_risk", False)
+
+    badges = [
+        f"👤 {age_group_disp} · BMI {bmi_val} ({bmi_grade_disp})",
+        f"🎯 {user.get('goal', '')} · {('초보자' if user.get('fitness_level') == 'beginner' else '중급자' if user.get('fitness_level') == 'intermediate' else '고급자')}",
+    ]
+    if has_public_data:
+        badges.append("📊 국민체육공단 공공데이터 반영")
+    if is_high_risk:
+        badges.append("⚠️ 고령/고도비만 — 저충격·안전 우선 루틴")
+
+    badge_html = " &nbsp;|&nbsp; ".join(
+        f"<span style='background:rgba(120,120,120,0.13); border-radius:20px; padding:4px 12px; font-size:0.82rem; color:#888;'>{b}</span>"
+        for b in badges
+    )
+    st.markdown(f"<div style='margin:8px 0 16px; line-height:2.2;'>{badge_html}</div>", unsafe_allow_html=True)
 
     # ── 요약 메트릭 ──
     categories = [ex.get("category", "") for ex in exercises]
