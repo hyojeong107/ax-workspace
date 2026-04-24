@@ -15,24 +15,55 @@ load_dotenv()
 
 CHROMA_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "chroma_db")
 GYM_COLLECTION = "gym_equipment"
+FITNESS_COLLECTION = "fitness_measurement"
+EXERCISE_COLLECTION = "exercise_recommendation"
 
 _gym_store: Chroma | None = None
+_fitness_store: Chroma | None = None
+_exercise_store: Chroma | None = None
+
+
+def _get_embeddings() -> OpenAIEmbeddings:
+    return OpenAIEmbeddings(
+        model="text-embedding-3-small",
+        api_key=os.getenv("OPENAI_API_KEY"),
+    )
 
 
 def _get_gym_store() -> Chroma:
     global _gym_store
     if _gym_store is None:
-        embeddings = OpenAIEmbeddings(
-            model="text-embedding-3-small",
-            api_key=os.getenv("OPENAI_API_KEY"),
-        )
         _gym_store = Chroma(
             collection_name=GYM_COLLECTION,
-            embedding_function=embeddings,
+            embedding_function=_get_embeddings(),
             persist_directory=CHROMA_PATH,
             collection_metadata={"hnsw:space": "cosine"},
         )
     return _gym_store
+
+
+def _get_fitness_store() -> Chroma:
+    global _fitness_store
+    if _fitness_store is None:
+        _fitness_store = Chroma(
+            collection_name=FITNESS_COLLECTION,
+            embedding_function=_get_embeddings(),
+            persist_directory=CHROMA_PATH,
+            collection_metadata={"hnsw:space": "cosine"},
+        )
+    return _fitness_store
+
+
+def _get_exercise_store() -> Chroma:
+    global _exercise_store
+    if _exercise_store is None:
+        _exercise_store = Chroma(
+            collection_name=EXERCISE_COLLECTION,
+            embedding_function=_get_embeddings(),
+            persist_directory=CHROMA_PATH,
+            collection_metadata={"hnsw:space": "cosine"},
+        )
+    return _exercise_store
 
 
 def index_gym(user_id: int, gym_data: GymData) -> int:
