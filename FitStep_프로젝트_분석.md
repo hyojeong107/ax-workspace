@@ -24,6 +24,7 @@
 | 사용자 프로필 등록/수정 | 나이, 키, 몸무게, 체력 수준, 운동 목표(복수), 건강 주의사항, 부상 태그 입력·수정 |
 | AI 운동 루틴 추천 | OpenAI GPT-4o-mini가 프로필·이력·진행 상태를 분석해 맞춤 루틴 생성 |
 | RAG 기반 헬스장 맞춤화 | 사용자의 헬스장 기구 정보를 벡터DB(ChromaDB)에 저장 후 AI가 해당 기구만 추천 |
+| 공공데이터 기반 맞춤화 | 국민체육공단 체력측정(950건) + 운동추천 데이터를 RAG로 활용해 연령/BMI/성별 기반 루틴 근거 제공 |
 | 컨디션 기반 루틴 개인화 | 루틴 추천 전 오늘의 컨디션(1-5점)·근육통 부위 입력 → AI가 볼륨·제외 부위 자동 조정 |
 | 운동 split 자동 감지 | 최근 2일 운동 기록을 분석해 이미 훈련한 부위를 제외하고 루틴 생성 |
 | 운동 기록 관리 | 실제 수행한 세트·횟수·무게·메모 저장 |
@@ -40,6 +41,7 @@
 | 백엔드 API | FastAPI, uvicorn |
 | 데이터베이스 | MySQL 8.0 (관계형), ChromaDB 1.5.8 (벡터DB) |
 | AI 모델 | OpenAI GPT-4o-mini (루틴 생성), text-embedding-3-small (임베딩) |
+| RAG 프레임워크 | LangChain (langchain-openai, langchain-chroma) |
 | 배포 | Docker Compose, Streamlit Cloud, ngrok (터널링) |
 
 ---
@@ -527,7 +529,9 @@ class IndexRequest(BaseModel):
     gym_data: GymData
 ```
 
-### app/indexing.py - ChromaDB 임베딩 저장
+### app/indexing.py - ChromaDB 임베딩 저장 (LangChain 기반)
+
+> 2026-04-24 LangChain으로 전환: `OpenAI SDK 직접 호출` → `OpenAIEmbeddings + Chroma`
 
 ```python
 def index_gym(user_id: int, gym_data: GymData) -> int:
@@ -543,9 +547,37 @@ def index_gym(user_id: int, gym_data: GymData) -> int:
 
     동작:
     1. 기존 사용자 데이터 삭제
-    2. OpenAI text-embedding-3-small으로 임베딩 생성
-    3. ChromaDB에 저장
+    2. LangChain OpenAIEmbeddings (text-embedding-3-small)으로 임베딩 생성
+    3. LangChain Chroma.add_documents()로 저장
     """
+```
+
+### init_public_data.py - 공공데이터 초기 인덱싱 (Phase 0)
+
+> 2026-04-24 신규 추가. 최초 1회 또는 --force 옵션으로 재인덱싱.
+
+**ChromaDB 컬렉션 구조 (전체)**
+```
+chroma_db/
+├── gym_equipment           # 사용자별 헬스장 기구 (user_id 메타데이터 필터)
+├── fitness_measurement     # 국민체육공단 체력측정 공공데이터 (950건)
+└── exercise_recommendation # 국민체육공단 운동추천 공공데이터 (조합별 묶음)
+```
+
+**인덱싱 전략**
+| 컬렉션 | 문서 단위 | 주요 메타데이터 |
+|---|---|---|
+| gym_equipment | 요약 1개 + 기구별 N개 | user_id, doc_type, gym_json |
+| fitness_measurement | 1레코드 → 자연어 문장 1개 | source, age_group, gender, grade, bmi, bmi_category, age |
+| exercise_recommendation | 조합(연령+BMI+성별+상장+단계) → 1문서 | source, age_group, gender, bmi_grade, award_grade, exercise_step |
+
+**실행**
+```bash
+# 최초 인덱싱 (데이터 있으면 스킵)
+..\venv\Scripts\python init_public_data.py
+
+# 강제 재인덱싱
+..\venv\Scripts\python init_public_data.py --force
 ```
 
 ### app/retrieval.py - ChromaDB 검색

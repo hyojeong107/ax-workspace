@@ -44,3 +44,18 @@ class GymDataResponse(BaseModel):
     user_id: int
     has_data: bool
     gym_data: Optional[GymData] = None
+
+
+class ChatRequest(BaseModel):
+    user_id: int = Field(..., description="사용자 ID")
+    message: str = Field(..., description="사용자 메시지")
+    age: Optional[int] = Field(None, description="나이")
+    gender: Optional[str] = Field(None, description="성별 (M/F)")
+    bmi: Optional[float] = Field(None, description="BMI 수치")
+    age_group: Optional[str] = Field(None, description="연령대 (예: 30대)")
+    bmi_grade: Optional[str] = Field(None, description="BMI 등급 (예: 정상, 비만)")
+
+
+class ChatResponse(BaseModel):
+    user_id: int
+    answer: str
