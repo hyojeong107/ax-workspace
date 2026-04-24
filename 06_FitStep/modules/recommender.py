@@ -147,7 +147,7 @@ def recommend_routine(user: dict) -> dict:
     console.print("[dim]AI가 루틴을 생성 중입니다...[/dim]")
 
     response = client.chat.completions.create(
-        model="gpt-40",      
+        model="gpt-4o",
         messages=[{"role": "user", "content": prompt}],
         temperature=0.7,           # 창의성 수준 (0~1, 높을수록 다양한 결과)
         response_format={"type": "json_object"},  # JSON만 반환하도록 강제

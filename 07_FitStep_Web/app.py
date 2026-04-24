@@ -945,6 +945,8 @@ def recommend_routine(user: dict, force_new: bool = False,
 
     # 운동별 쿨다운 정보 수집
     cooldown_info = _get_exercise_cooldown_info(user["id"])
+    print("=== COOLDOWN INFO ===", cooldown_info)
+    print("=== COOLDOWN SECTION ===", _build_cooldown_section(cooldown_info))
 
     exercise_list = _cached_exercise_list()
     prompt = _build_routine_prompt(
@@ -954,7 +956,7 @@ def recommend_routine(user: dict, force_new: bool = False,
     )
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     response = client.chat.completions.create(
-        model="gpt-40",
+        model="gpt-4o",
         messages=[{"role": "user", "content": prompt}],
         temperature=0.7,
         response_format={"type": "json_object"},
