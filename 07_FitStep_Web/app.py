@@ -484,7 +484,7 @@ def page_menu():
 # ══════════════════════════════════════════════════════════════════════════════
 def _build_routine_prompt(user: dict, progression_context: str, gym_context: str, exercise_list: list = None,
                           condition_info: dict = None, recent_body_parts: list = None,
-                          rag_context: dict = None) -> str:
+                          rag_context: dict = None, cooldown_info: list = None) -> str:
     fitness_labels = {"beginner": "초보자", "intermediate": "중급자", "advanced": "고급자"}
     level = fitness_labels.get(user["fitness_level"], user["fitness_level"])
     bmi = round(user["weight_kg"] / ((user["height_cm"] / 100) ** 2), 1)
@@ -593,6 +593,8 @@ def _build_routine_prompt(user: dict, progression_context: str, gym_context: str
         if rag_context.get("is_high_risk"):
             safety_rule = "\n[안전 주의 — 반드시 포함]\n- 고령 또는 고도비만 사용자입니다. advice 필드에 관절 보호·무리 금지·점진적 강도 증가에 대한 주의 문구를 반드시 작성하세요.\n"
 
+    cooldown_section = _build_cooldown_section(cooldown_info or [])
+
     return f"""당신은 전문 헬스 트레이너입니다.
 아래 사용자 정보를 바탕으로 오늘의 헬스장 운동 루틴을 추천해주세요.
 
@@ -602,7 +604,7 @@ def _build_routine_prompt(user: dict, progression_context: str, gym_context: str
 - 체력 수준: {level}
 - 운동 목표: {user['goal']}
 - 건강 주의사항: {user['health_notes'] or '없음'}
-{prog_section}{injury_section}{condition_section}{avoid_section}{volume_guideline_section}{rag_section}{safety_rule}{gym_section}{exercise_section}
+{prog_section}{injury_section}{condition_section}{avoid_section}{volume_guideline_section}{rag_section}{safety_rule}{cooldown_section}{gym_section}{exercise_section}
 [출력 규칙]
 1. 운동은 4~6개로 구성해주세요.
 2. 목표가 여러 개라면 각 목표에 맞는 운동을 균형있게 섞어주세요.
@@ -783,6 +785,93 @@ def _get_recent_body_parts(user_id: int) -> list[str]:
     return list(parts)
 
 
+# 운동별 쿨다운 기준 (일수): 부위별로 회복에 필요한 최소 일수
+_COOLDOWN_DAYS = {
+    "가슴": 3, "등": 3, "어깨": 3, "하체": 3, "팔": 2, "복근": 2, "유산소": 1,
+}
+_DEFAULT_COOLDOWN = 3
+
+
+def _get_exercise_cooldown_info(user_id: int) -> list[dict]:
+    """
+    운동별 마지막 수행일과 경과일수를 반환.
+    progression API(/db/logs/progression)를 재사용해 API 추가 없이 구현.
+    반환: [{"name": "스쿼트", "days_ago": 1, "cooldown": 3, "available": False}, ...]
+    """
+    import re
+    try:
+        progression = api_get_progression(user_id)
+    except Exception:
+        return []
+
+    today = date.today()
+    result = []
+    for item in progression:
+        name = item.get("exercise_name", "")
+        last_logged_str = str(item.get("last_logged", ""))[:10]
+        try:
+            last_date = date.fromisoformat(last_logged_str)
+            days_ago = (today - last_date).days
+        except Exception:
+            continue
+
+        # 부위 추정으로 쿨다운 기준 결정
+        name_lower = name.lower()
+        cooldown = _DEFAULT_COOLDOWN
+        for pattern, part in _BODY_PART_MAP.items():
+            if re.search(pattern, name_lower):
+                cooldown = _COOLDOWN_DAYS.get(part, _DEFAULT_COOLDOWN)
+                break
+
+        result.append({
+            "name": name,
+            "days_ago": days_ago,
+            "cooldown": cooldown,
+            "available": days_ago >= cooldown,
+        })
+
+    return result
+
+
+def _build_cooldown_section(cooldown_info: list[dict]) -> str:
+    """
+    쿨다운 정보를 GPT 프롬프트용 텍스트로 변환.
+    사용 가능(쿨다운 완료) / 휴식 필요 / 오늘 수행 3가지로 분류.
+    """
+    if not cooldown_info:
+        return ""
+
+    today_done = [e for e in cooldown_info if e["days_ago"] == 0]
+    resting = [e for e in cooldown_info if 0 < e["days_ago"] < e["cooldown"]]
+    available = [e for e in cooldown_info if e["available"]]
+
+    lines = ["\n[운동 순환 스케줄 — 반드시 준수]"]
+
+    if today_done:
+        names = ", ".join(e["name"] for e in today_done)
+        lines.append(f"- 오늘 이미 수행한 운동 (오늘 루틴에서 제외): {names}")
+
+    if resting:
+        rest_parts = []
+        for e in resting:
+            remaining = e["cooldown"] - e["days_ago"]
+            rest_parts.append(f"{e['name']}({remaining}일 후 재추천)")
+        lines.append(f"- 쿨다운 중 — 오늘 제외: {', '.join(rest_parts)}")
+
+    if available:
+        # 오래 쉰 것 우선 (days_ago 내림차순)
+        available_sorted = sorted(available, key=lambda e: e["days_ago"], reverse=True)
+        priority = [e["name"] for e in available_sorted if e["days_ago"] >= e["cooldown"] + 3]
+        normal = [e["name"] for e in available_sorted if e["days_ago"] < e["cooldown"] + 3]
+        if priority:
+            lines.append(f"- 오랫동안 쉰 운동 (우선 추천): {', '.join(priority)}")
+        if normal:
+            lines.append(f"- 재추천 가능한 운동: {', '.join(normal)}")
+
+    lines.append("※ 위 제외 운동 대신 같은 부위의 다른 변형 동작으로 대체해 다양성을 확보하세요.")
+    return "\n".join(lines) + "\n"
+
+
 def _check_level_up_suggestion(user: dict, uid: int) -> tuple[bool, str, str]:
     """레벨업 조건 충족 여부와 현재/다음 레벨 반환."""
     current = user.get("fitness_level", "beginner")
@@ -854,15 +943,18 @@ def recommend_routine(user: dict, force_new: bool = False,
         bmi_grade = "고도비만"
     rag_context = api_get_rag_context(user["id"], age, gender, bmi, age_group, bmi_grade)
 
+    # 운동별 쿨다운 정보 수집
+    cooldown_info = _get_exercise_cooldown_info(user["id"])
+
     exercise_list = _cached_exercise_list()
     prompt = _build_routine_prompt(
         user, progression_context, gym_context, exercise_list,
         condition_info=condition_info, recent_body_parts=recent_body_parts,
-        rag_context=rag_context,
+        rag_context=rag_context, cooldown_info=cooldown_info,
     )
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model="gpt-40",
         messages=[{"role": "user", "content": prompt}],
         temperature=0.7,
         response_format={"type": "json_object"},
@@ -1138,10 +1230,15 @@ def page_recommend():
             col1, col2 = st.columns([1.5, 3])
             
             with col1:
-                if gif_url:
+                if gif_url and isinstance(gif_url, str) and gif_url.startswith("http"):
                     st.image(gif_url, use_container_width=True)
                 else:
-                    st.info("운동 이미지를 준비 중입니다. 🥲")
+                    st.markdown(
+                        "<div style='height:120px; display:flex; align-items:center;"
+                        " justify-content:center; background:rgba(0,0,0,0.04);"
+                        " border-radius:12px; color:#aaa; font-size:0.85rem;'>🖼 이미지 준비 중</div>",
+                        unsafe_allow_html=True,
+                    )
             
             with col2:
                 if ex.get("category") == "유산소":

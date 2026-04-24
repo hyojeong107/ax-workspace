@@ -75,7 +75,7 @@ def _retrieve_contexts(item: dict) -> list[str]:
 def _generate_answer(client: OpenAI, question: str, contexts: list[str]) -> str:
     context_text = "\n".join(contexts) if contexts else "관련 데이터 없음"
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model="gpt-4o",
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT + context_text},
             {"role": "user", "content": question},

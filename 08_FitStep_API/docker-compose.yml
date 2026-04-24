@@ -33,6 +33,7 @@ services:
       - .env
     volumes:
       - chroma_data:/app/data/chroma_db
+      - gifs_data:/app/app/static/gifs
     depends_on:
       mysql:
         condition: service_healthy
@@ -41,3 +42,4 @@ services:
 volumes:
   chroma_data:
   mysql_data:
+  gifs_data:

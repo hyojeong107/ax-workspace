@@ -27,6 +27,7 @@
 | 공공데이터 기반 맞춤화 | 국민체육공단 체력측정(950건) + 운동추천 데이터를 RAG로 활용해 연령/BMI/성별 기반 루틴 근거 제공 |
 | 컨디션 기반 루틴 개인화 | 루틴 추천 전 오늘의 컨디션(1-5점)·근육통 부위 입력 → AI가 볼륨·제외 부위 자동 조정 |
 | 운동 split 자동 감지 | 최근 2일 운동 기록을 분석해 이미 훈련한 부위를 제외하고 루틴 생성 |
+| 쿨다운 기반 순환 추천 | 운동별 마지막 수행일을 추적해 부위별 회복 기간(2~3일) 동안 제외, 오래 쉰 운동 우선 추천 |
 | 운동 기록 관리 | 실제 수행한 세트·횟수·무게·메모 저장 |
 | 점진적 향상 분석 | Progressive Overload 원리에 따라 무게·횟수 증가 자동 제안 |
 | 성장 대시보드 | 완료 루틴 수·연속 운동일·운동별 최고 기록 등 시각화 |
@@ -335,8 +336,11 @@ def _h() -> dict:
 
 | 함수 | 역할 |
 |------|------|
-| `_build_routine_prompt()` | GPT 프롬프트 생성 (부상·컨디션·split·볼륨가이드라인 섹션 포함) |
+| `_build_routine_prompt()` | GPT 프롬프트 생성 (부상·컨디션·split·볼륨가이드라인·공공데이터 RAG·쿨다운 순환 섹션 포함) |
+| `recommend_routine()` | BMI 등급·연령대 자동 계산 → `/rag/context` 호출 → 쿨다운 정보 수집 → 프롬프트에 컨텍스트 주입 |
 | `_get_recent_body_parts(user_id)` | 최근 2일 운동 로그를 regex로 분석해 훈련한 신체 부위 목록 반환 |
+| `_get_exercise_cooldown_info(user_id)` | 운동별 마지막 수행일·경과일수·쿨다운 기준·가용 여부 반환 (progression API 재사용) |
+| `_build_cooldown_section(cooldown_info)` | 오늘 수행·쿨다운 중·재추천 가능 3분류로 GPT 프롬프트 섹션 생성 |
 | `_check_level_up_suggestion(user, uid)` | 완료 루틴 ≥10 + 레벨업 운동 ≥3 충족 시 승급 배너 표시 |
 | `_calc_progression_suggestion()` | 나이·BMI·성별·체력 수준을 고려한 점진적 증가 제안 계산 |
 
@@ -457,7 +461,8 @@ def verify_api_key(api_key: str = Security(_api_key_header)) -> str:
 |--------|------|------|
 | POST | /db/exercises/sync | RapidAPI ExerciseDB에서 1500개 운동 목록 동기화 |
 | GET | /db/exercises/list | GPT 프롬프트용 운동 목록 반환 |
-| GET | /db/exercises/gif | 운동 GIF URL 조회 (캐싱 포함) |
+| GET | /db/exercises/gif | 운동 GIF URL 조회 (RapidAPI 다운로드 → 로컬 캐싱) |
+| POST | /rag/context | 공공데이터 RAG 컨텍스트 반환 (체력측정 유사사례 + 운동추천, GPT 호출 없음) |
 
 ### app/db_schemas.py - Pydantic 모델
 
@@ -707,7 +712,10 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 4. _get_recent_body_parts(user_id) 호출
    → 최근 2일 workout_logs에서 운동명을 regex로 분석해 훈련 부위 추출
         ↓
-5. _build_routine_prompt() 호출 (condition_info + recent_body_parts 전달)
+4-1. _get_exercise_cooldown_info(user_id) 호출
+   → progression API 재사용 → 운동별 마지막 수행일 기준 쿨다운 가용 여부 계산
+        ↓
+5. _build_routine_prompt() 호출 (condition_info + recent_body_parts + cooldown_info 전달)
    프롬프트에 포함되는 섹션:
    - [사용자 프로필] 나이·몸무게·체력수준·목표
    - [부상 주의사항] injury_tags 기반 금지 운동·대체 운동 안내
@@ -715,6 +723,7 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
    - [오늘 제외할 부위] 근육통 선택 부위 + 최근 2일 훈련 부위 합산
    - [볼륨 가이드라인] goal 기반 세트·반복 수·강도 기준 제시
    - [점진적 향상] progression API 분석 결과
+   - [운동 순환 스케줄] 쿨다운 기반 오늘 제외/우선추천/재추천 가능 운동 목록
    - [헬스장 기구] ChromaDB RAG 컨텍스트
         ↓
 6. OpenAI GPT-4o-mini → 루틴 JSON 생성
@@ -829,7 +838,14 @@ collection.get(where={"user_id": {"$eq": user_id}})
 
 ### ChromaDB 저장소
 
-**경로:** `data/chroma_db/` (로컬) 또는 Docker 볼륨 `chroma_data`  
+**Docker 볼륨 구성:**
+| 볼륨 | 마운트 경로 | 용도 |
+|------|------------|------|
+| `chroma_data` | `/app/data/chroma_db` | ChromaDB 벡터 저장소 |
+| `mysql_data` | `/var/lib/mysql` | MySQL 데이터 |
+| `gifs_data` | `/app/app/static/gifs` | RapidAPI 다운로드 GIF 캐시 (재빌드 후에도 유지) |
+
+**ChromaDB 경로:** `data/chroma_db/` (로컬) 또는 Docker 볼륨 `chroma_data`  
 **컬렉션:** `gym_equipment`
 
 **문서 ID 패턴:**

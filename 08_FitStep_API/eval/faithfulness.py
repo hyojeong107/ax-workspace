@@ -1,6 +1,6 @@
 """Faithfulness 평가 — 생성된 답변이 검색 컨텍스트에 근거하는지 측정
 
-gpt-4o-mini를 Judge로 사용해 0.0 ~ 1.0 점수를 반환합니다.
+gpt-4o를 Judge로 사용해 0.0 ~ 1.0 점수를 반환합니다.
 컨텍스트가 없으면 0.0, 답변이 없으면 0.0.
 """
 
@@ -43,7 +43,7 @@ def evaluate_faithfulness(answer: str, contexts: list[str], client: OpenAI | Non
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-4o",
             messages=[{"role": "user", "content": prompt}],
             temperature=0,
             max_tokens=512,

@@ -199,11 +199,6 @@ def delete_today_routine(user_id: int):
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute(
-        "DELETE FROM workout_logs WHERE routine_id IN "
-        "(SELECT id FROM routines WHERE user_id=%s AND routine_date=%s)",
-        (user_id, date.today().isoformat())
-    )
-    cursor.execute(
         "DELETE FROM routines WHERE user_id=%s AND routine_date=%s",
         (user_id, date.today().isoformat())
     )
