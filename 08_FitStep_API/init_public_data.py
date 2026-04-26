@@ -15,6 +15,9 @@ from langchain_chroma import Chroma
 from langchain_core.documents import Document
 from openai import OpenAI
 from rank_bm25 import BM25Okapi
+from kiwipiepy import Kiwi
+
+_kiwi = Kiwi()
 
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
@@ -62,18 +65,22 @@ def _get_openai_client():
 
 
 def _generate_context(openai_client, dataset_desc: str, chunk_text: str) -> str:
-    """GPT-4o-mini로 청크에 대한 컨텍스트 설명을 생성합니다."""
+    """GPT-4o-mini로 청크에 대한 컨텍스트 설명을 생성합니다. 실패 시 빈 문자열 반환."""
     prompt = (
         f"다음은 데이터셋 설명입니다:\n{dataset_desc}\n\n"
         f"다음 청크에 대해 간결한 컨텍스트 설명을 한 문장으로 작성하세요. "
         f"형식: '이 청크는 [내용 요약].'\n\n청크:\n{chunk_text}"
     )
-    response = openai_client.chat.completions.create(
-        model="gpt-4o-mini",
-        max_tokens=150,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return response.choices[0].message.content.strip()
+    try:
+        response = openai_client.chat.completions.create(
+            model="gpt-4o-mini",
+            max_tokens=150,
+            timeout=15,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return response.choices[0].message.content.strip()
+    except Exception:
+        return ""
 
 
 def _make_contextual_text(dataset_desc: str, context: str, chunk_text: str) -> str:
@@ -82,8 +89,9 @@ def _make_contextual_text(dataset_desc: str, context: str, chunk_text: str) -> s
 
 
 def _tokenize(text: str) -> list[str]:
-    """BM25용 단순 공백/자모 토크나이저."""
-    return text.split()
+    """BM25용 한국어 형태소 토크나이저 (kiwipiepy)."""
+    tokens = _kiwi.tokenize(text)
+    return [t.form for t in tokens if len(t.form) > 1]
 
 
 def _bmi_category(bmi_val) -> str:
