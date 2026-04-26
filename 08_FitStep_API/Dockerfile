@@ -24,22 +24,23 @@ WORKDIR /app
 # builder 스테이지에서 설치된 패키지만 복사 (build-essential 미포함)
 COPY --from=builder /install /usr/local
 
-# 앱 소스 복사
+# 앱 소스 + 공공데이터 인덱싱 스크립트 복사
 COPY app/ ./app/
+COPY init_public_data.py ./
+COPY ["data/국민연령별추천운동정보.csv", "data/체력측정 및 운동처방 종합 데이터.json", "./data/"]
+COPY entrypoint.sh ./
 
 # ChromaDB 영속 데이터 디렉터리 — 소유권을 appuser에게 부여
-RUN mkdir -p /app/data/chroma_db && chown -R appuser:appgroup /app
+RUN mkdir -p /app/data/chroma_db \
+    && chown -R appuser:appgroup /app \
+    && chmod +x /app/entrypoint.sh
 
 USER appuser
 
 EXPOSE 8000
 
-# 헬스체크: /health 엔드포인트가 없으면 /docs 로 대체
-HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
+# 헬스체크
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
 
-# 개발용 (코드 수정 시 자동 재시작)
-CMD ["uvicorn", "app.main:app", \
-     "--host", "0.0.0.0", \
-     "--port", "8000", \
-     "--reload"]
+ENTRYPOINT ["/app/entrypoint.sh"]
