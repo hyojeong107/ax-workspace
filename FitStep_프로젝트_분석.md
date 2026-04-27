@@ -5,11 +5,13 @@
 2. [06_FitStep - CLI 기반 헬스 코치](#06_fitstep---cli-기반-헬스-코치)
 3. [07_FitStep_web - Streamlit 웹 인터페이스](#07_fitstep_web---streamlit-웹-인터페이스)
 4. [08_FitStep_API - FastAPI 백엔드 서버](#08_fitstep_api---fastapi-백엔드-서버)
-5. [시스템 아키텍처](#시스템-아키텍처)
-6. [API 연동 방식](#api-연동-방식)
-7. [데이터베이스 구조](#데이터베이스-구조)
-8. [환경변수 통합 요약](#환경변수-통합-요약)
-9. [실행 및 배포 방법](#실행-및-배포-방법)
+5. [09_SingleAgent - ReAct 단일 에이전트](#09_singleagent---react-단일-에이전트)
+6. [10_MultiAgent - 멀티에이전트 파이프라인](#10_multiagent---멀티에이전트-파이프라인)
+7. [시스템 아키텍처](#시스템-아키텍처)
+8. [API 연동 방식](#api-연동-방식)
+9. [데이터베이스 구조](#데이터베이스-구조)
+10. [환경변수 통합 요약](#환경변수-통합-요약)
+11. [실행 및 배포 방법](#실행-및-배포-방법)
 
 ---
 
@@ -640,46 +642,239 @@ services:
 
 ---
 
+## 09_SingleAgent - ReAct 단일 에이전트
+
+### 개요
+
+08_FitStep_API의 고정 파이프라인을 OpenAI tool-calling 기반 ReAct 에이전트로 재설계한 버전.
+GPT가 어떤 도구를 언제 호출할지 스스로 판단하는 구조.
+
+### 파일 구조
+
+```
+09_SingleAgent/
+├── app/
+│   ├── agent.py      # OpenAI tool-calling ReAct 루프 (MAX_ITERATIONS=10)
+│   ├── tools.py      # 도구 정의 + 실행 (search_rag, search_web, generate_curriculum, validate_curriculum)
+│   ├── main.py       # FastAPI (/health, /auth/login, /auth/verify, /chat)
+│   ├── auth.py       # JWT 인증 — 08의 MySQL users 테이블 연동
+│   ├── schemas.py    # Pydantic 모델
+│   ├── db.py         # MySQL 연결 (08과 동일 스키마)
+│   ├── indexing.py   # ChromaDB 스토어 초기화
+│   └── retrieval.py  # Hybrid Search (Vector + BM25 + RRF + Reranker)
+├── prompts/
+│   └── agent_system.txt  # 에이전트 시스템 프롬프트
+├── streamlit_app/    # 대화형 Streamlit 프론트엔드
+├── Dockerfile
+└── docker-compose.yml
+```
+
+### 에이전트 도구 4가지
+
+| 도구 | GPT 사용 | 역할 |
+|------|---------|------|
+| `search_rag` | 없음 | ChromaDB 하이브리드 검색 (체력측정 사례 + 운동추천) |
+| `search_web` | 없음 | Tavily 외부 웹 검색 (부상/질환 특수 조건 시) |
+| `generate_curriculum` | 있음 (gpt-4o-mini) | 주간 운동 커리큘럼 JSON 생성 |
+| `validate_curriculum` | 없음 | 시간/일수/근육 그룹 규칙 검증 (순수 Python) |
+
+### 도커 실행 방법
+
+```bash
+# 08을 먼저 실행 (MySQL + ChromaDB 공유)
+cd 08_FitStep_API && docker-compose up -d
+
+# 09를 08 네트워크/볼륨에 합류
+cd ../09_SingleAgent && docker-compose up -d
+
+# 또는 로컬 실행
+cd 09_SingleAgent
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8001
+```
+
+**포트:** API 8001, Streamlit 8502
+
+### 싱글 에이전트 한계
+
+현재 구조에서 싱글 에이전트는 충분하지만, 다음 확장이 필요해지면 멀티에이전트가 정당화됨:
+- 병렬 정보 수집 (RAG + 웹 동시 검색)
+- 전문화된 도메인 분리 (근력/유산소/재활)
+- 커리큘럼 생성 외 다른 목적 에이전트 추가
+
+---
+
+## 10_MultiAgent - 멀티에이전트 파이프라인
+
+### 개요
+
+09_SingleAgent를 기반으로 전문가 에이전트 팀 + 비GPT 에이전트를 결합한 멀티에이전트 시스템.
+**핵심 원칙:** 신뢰가 필요한 작업(필터링/검증/계산)은 코드가, 자연어 생성만 GPT가 담당.
+
+### 파일 구조
+
+```
+10_MultiAgent/
+├── app/
+│   ├── agents/
+│   │   ├── orchestrator.py     # 파이프라인 메인 컨트롤러 (결정적 흐름)
+│   │   ├── specialists.py      # 근력/유산소/재활 전문 에이전트 (각 GPT 1회)
+│   │   └── integration.py      # 통합 에이전트 (GPT 1회, 검증 실패 시 재시도)
+│   ├── tools/
+│   │   ├── exercise_matcher.py # 기구→운동 매핑 (Python 딕셔너리, GPT 없음)
+│   │   ├── validator.py        # 커리큘럼 검증 + check_summary (Python, GPT 없음)
+│   │   ├── rag_search.py       # ChromaDB 검색 래퍼
+│   │   └── web_search.py       # Tavily 검색 래퍼
+│   ├── main.py                 # FastAPI + curricula 저장/목록/다운로드 API
+│   ├── schemas.py              # ChatResponse에 matched_exercises, specialists_called, pipeline_log 추가
+│   ├── db.py                   # curricula 테이블 추가 (기존 스키마 변경 없음)
+│   └── auth.py                 # JWT 인증 (09와 동일)
+├── prompts/                    # 에이전트 시스템 프롬프트 외부 파일 관리
+│   ├── orchestrator.txt        # 전문가 결정 판단 기준
+│   ├── strength_agent.txt      # 근력 트레이닝 전문가
+│   ├── cardio_agent.txt        # 유산소/심폐 전문가 + 심박수 존
+│   ├── rehab_agent.txt         # 재활/물리치료 전문가 + 부상별 가이드
+│   └── integration_agent.txt  # 통합 규칙 + 출력 JSON 형식
+├── streamlit_app/
+│   ├── app.py                  # 개선된 UI (파이프라인 로그, 전문가 태그, 검증 실패 경고)
+│   └── api_client.py           # curricula 이력 API 포함
+├── eval/
+│   ├── code_checks.py          # 코드 검증 항목 (Precision@K, 규칙 통과율 등, GPT 없음)
+│   ├── llm_judge.py            # LLM 판단 항목 (Faithfulness, 멀티에이전트 Coherence)
+│   └── run_eval.py             # 통합 평가 (코드 검증 + LLM 판단 분리 실행)
+├── Dockerfile
+└── docker-compose.yml
+```
+
+### 파이프라인 흐름
+
+```
+사용자 메시지 + 프로필 + gym_data
+  ↓
+Step 1. match_exercises(equipment)          Python 딕셔너리 매핑 — GPT 없음
+  ↓ available_exercises (기구별 운동 목록)
+Step 2. search_rag(profile)                 ChromaDB 하이브리드 검색 — GPT 없음
+  ↓ rag_context
+Step 3. search_web(query)                   Tavily — 부상/질환 있을 때만
+  ↓ web_context
+Step 4. _analyze_specialists(message, profile)   GPT 1회 — 전문가 결정
+  ↓ {"strength": T, "cardio": T, "rehab": T}
+Step 5a. run_strength_agent(profile, rag, exercises)  GPT 1회
+Step 5b. run_cardio_agent(profile, rag, exercises)    GPT 1회 + 심박수 존 계산
+Step 5c. run_rehab_agent(profile, web)               GPT 1회 → forbidden_exercises
+  ↓ 각 전문가 세션 JSON
+Step 6. run_integration_agent(strength, cardio, rehab)  GPT 1회
+  ↓ combined curriculum JSON
+Step 7. validate_curriculum(curriculum)              Python 규칙 검증 — GPT 없음
+  → 실패 시 Step 6 재시도 (최대 2회, 오류 메시지 전달)
+  ↓
+curricula 테이블 자동 저장 (검증 통과 시)
+```
+
+### 에이전트별 역할
+
+| 에이전트 | GPT | 역할 | 출력 |
+|---------|-----|------|------|
+| Orchestrator | 1회 | 전문가 필요 여부 결정 | `{strength, cardio, rehab}` |
+| Strength Agent | 1회 | 근력 세션 설계 (점진적 과부하, 근육 분할) | sessions JSON |
+| Cardio Agent | 1회 | 유산소 세션 + 심박수 존 계산 | sessions + heart_rate_zone |
+| Rehab Agent | 1회 | 금지 운동 + 안전 가이드라인 | `{forbidden_exercises, safety_notes}` |
+| Integration Agent | 1회 | 전문가 결과 통합, 충돌 방지 | 최종 curriculum JSON |
+
+### 신규 API 엔드포인트
+
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| POST | `/chat` | 멀티에이전트 파이프라인 실행 |
+| POST | `/curricula/save` | 커리큘럼 수동 저장 |
+| GET | `/curricula` | 사용자 커리큘럼 목록 조회 |
+| GET | `/curricula/{id}/download` | 커리큘럼 JSON 파일 다운로드 |
+| DELETE | `/curricula/{id}` | 커리큘럼 삭제 |
+
+### 미완성 — 다음 세션 구현 예정
+
+주간 커리큘럼 → 오늘의 운동 연결 레이어:
+
+```
+POST /curricula/{id}/activate
+  → weekly_plan을 날짜별로 분해 → routines 테이블 INSERT
+
+GET /today
+  → 오늘 날짜 기준 routines 조회 → 오늘의 운동 반환
+
+Streamlit 요일 탭 UI
+  [월] [화] [수] [목] [금] [토] [일]
+  → 오늘 탭 자동 포커스 + 운동 카드 + 완료 체크
+```
+
+### 도커 실행
+
+```bash
+cd 10_MultiAgent
+cp .env.example .env   # OPENAI_API_KEY, DB 정보 등 설정
+docker-compose up -d   # API: 8001포트, Streamlit: 8502포트
+```
+
+**포트:** API 8001, Streamlit 8502 (08/09와 충돌 없음)
+
+---
+
 ## 시스템 아키텍처
+
+### 전체 프로젝트 진화 흐름
+
+```
+06_FitStep (CLI)          07_FitStep_web (Streamlit)
+     │                           │
+     └──────────────────────────┤
+                                 ▼
+                     08_FitStep_API (FastAPI + RAG)
+                         MySQL + ChromaDB
+                                 │
+                                 ├── 09_SingleAgent (ReAct 단일 에이전트)
+                                 │       └── 08 MySQL/ChromaDB 공유
+                                 │
+                                 └── 10_MultiAgent (멀티에이전트 파이프라인)
+                                         └── 08 MySQL/ChromaDB 공유
+                                             + curricula 테이블 추가
+```
 
 ### 로컬 개발 환경
 
 ```
 사용자
   ├── CLI 앱 (06_FitStep/main.py)
-  │     └── 직접 연결
-  └── Streamlit Web (07_FitStep_web/app.py :8501)
-        └── HTTP REST (api_client.py)
-              │
-              ▼
-        ┌─────────────────────────────────────┐
-        │  MySQL :3306 (DB: fitstep)          │
-        │  users / routines / workout_logs    │
-        └─────────────────────────────────────┘
-        ┌─────────────────────────────────────┐
-        │  ChromaDB (data/chroma_db/)         │
-        │  컬렉션: gym_equipment              │
-        └─────────────────────────────────────┘
-        ┌─────────────────────────────────────┐
-        │  OpenAI API                         │
-        │  gpt-4o-mini / text-embedding-3-small│
-        └─────────────────────────────────────┘
+  │     └── MySQL 직접 연결
+  ├── Streamlit Web (07_FitStep_web :8501)
+  │     └── HTTP → 08_FitStep_API :3000
+  ├── Single Agent UI (09_SingleAgent/streamlit_app :8502)
+  │     └── HTTP → 09_SingleAgent/app :8001
+  └── Multi Agent UI (10_MultiAgent/streamlit_app :8502)
+        └── HTTP → 10_MultiAgent/app :8001
+
+공유 인프라:
+  MySQL :3306  →  users / routines / workout_logs / exercises / curricula
+  ChromaDB     →  gym_equipment / fitness_measurement / exercise_recommendation
+  OpenAI API   →  gpt-4o-mini / gpt-4o / text-embedding-3-small
 ```
 
-### Docker 배포 환경 (Streamlit Cloud)
+### Docker 배포 환경
 
 ```
-Streamlit Cloud (07_FitStep_web)
-  └── HTTP REST
-        ↓
-      ngrok 터널 (로컬 PC)
-        ↓
-      Docker Compose (08_FitStep_API)
-        ├── FastAPI :3000
-        │     ├── /gym/* → ChromaDB
-        │     └── /db/*  → MySQL
-        ├── MySQL :3306
-        └── ChromaDB /chroma_db
+08_FitStep_API docker-compose:
+  fitstep_mysql      :3307  →  MySQL 8.0
+  gym_rag_api        :8000  →  FastAPI (RAG + DB CRUD)
+  fitstep_streamlit  :8501  →  07_FitStep_web
+
+09_SingleAgent docker-compose:
+  fitstep_single_api :8001  →  FastAPI (Agent)
+  fitstep_single_st  :8502  →  Streamlit
+  (08의 MySQL/ChromaDB 네트워크/볼륨 공유)
+
+10_MultiAgent docker-compose:
+  fitstep_multi_api  :8001  →  FastAPI (Multi-Agent)
+  fitstep_multi_st   :8502  →  Streamlit
+  fitstep_mysql      :3307  →  MySQL (독립 또는 08 공유)
 ```
 
 ---
@@ -689,8 +884,12 @@ Streamlit Cloud (07_FitStep_web)
 ### OpenAI API
 
 **사용 모델:**
-- `gpt-4o-mini` - 운동 루틴 생성
-- `text-embedding-3-small` - 헬스장 기구 임베딩
+
+| 모델 | 용도 | 사용 위치 |
+|------|------|---------|
+| `gpt-4o-mini` | 운동 루틴 생성, 커리큘럼 생성 | 06~10 전체 |
+| `gpt-4o` | 싱글 에이전트 ReAct 루프 | 09_SingleAgent |
+| `text-embedding-3-small` | 헬스장 기구 임베딩 | 08_FitStep_API |
 
 **클라이언트 초기화:**
 ```python
@@ -698,7 +897,7 @@ from openai import OpenAI
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 ```
 
-**루틴 추천 흐름 (웹앱 기준):**
+**루틴 추천 흐름 (07_FitStep_web 기준):**
 ```
 1. page_recommend() 진입
         ↓
@@ -733,24 +932,54 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 8. 웹 화면에 카드·차트 표시
 ```
 
+**멀티에이전트 흐름 (10_MultiAgent 기준):**
+```
+POST /chat
+  ↓
+Orchestrator
+  ├── match_exercises()      Python 딕셔너리 → 기구별 운동 목록 (GPT 없음)
+  ├── search_rag()           ChromaDB → 체력측정/운동추천 컨텍스트 (GPT 없음)
+  ├── search_web()           Tavily → 부상/질환 관련 정보 (조건부)
+  ├── _analyze_specialists() GPT-4o-mini 1회 → 전문가 결정
+  ├── run_strength_agent()   GPT-4o-mini 1회 → 근력 세션 JSON
+  ├── run_cardio_agent()     GPT-4o-mini 1회 → 유산소 세션 + 심박수 존
+  ├── run_rehab_agent()      GPT-4o-mini 1회 → 금지 운동 + 안전 가이드
+  ├── run_integration_agent() GPT-4o-mini 1회 → 통합 커리큘럼 JSON
+  └── validate_curriculum()  Python 규칙 → 검증 (실패 시 통합 재시도 최대 2회)
+  ↓
+curricula 테이블 자동 저장 (검증 통과 시)
+```
+
 ### FastAPI REST API
 
-**베이스 URL:**
-- 로컬: `http://localhost:3000`
-- 클라우드: `https://ngrok-uuid.ngrok.io`
+**베이스 URL 및 인증 방식 비교:**
 
-**인증 헤더:**
-```python
-headers = {"X-API-Key": os.getenv("RAG_API_KEY")}
-```
+| 서버 | URL | 인증 방식 |
+|------|-----|---------|
+| 08_FitStep_API | `http://localhost:3000` | X-API-Key 헤더 |
+| 09_SingleAgent | `http://localhost:8001` | JWT Bearer 토큰 |
+| 10_MultiAgent | `http://localhost:8001` | JWT Bearer 토큰 |
 
 ### ChromaDB
 
-**임베딩 모델:** `text-embedding-3-small` (OpenAI)  
-**컬렉션:** `gym_equipment`  
-**메타데이터 필터:**
-```python
-collection.get(where={"user_id": {"$eq": user_id}})
+**임베딩 모델:** `text-embedding-3-small` (OpenAI)
+
+**컬렉션 전체 구성:**
+
+| 컬렉션 | 데이터 | 검색 방식 |
+|--------|--------|---------|
+| `gym_equipment` | 사용자별 헬스장 기구 | user_id 필터 조회 |
+| `fitness_measurement` | 국민체육공단 체력측정 950건 | 벡터 + BM25 + RRF + Reranker |
+| `exercise_recommendation` | 연령/BMI/성별별 운동추천 | 벡터 + BM25 + RRF + Reranker |
+
+**Hybrid Search 파이프라인 (09/10 공통):**
+```
+쿼리
+  ├── Vector Search (ChromaDB, Top-10)
+  └── BM25 Search (kiwipiepy 형태소 분석, Top-10)
+        ↓ RRF 융합 (Reciprocal Rank Fusion)
+        ↓ Reranker (ms-marco-MiniLM-L-12-v2, flashrank)
+        ↓ 최종 Top-3 반환
 ```
 
 ### RapidAPI ExerciseDB (선택사항)
@@ -836,6 +1065,46 @@ collection.get(where={"user_id": {"$eq": user_id}})
 | synced | TINYINT(1) | RapidAPI 동기화 여부 |
 | created_at | DATETIME | 생성 일시 |
 
+#### curricula (10_MultiAgent 신규 추가)
+
+멀티에이전트가 생성한 **주간 커리큘럼**을 저장하는 테이블.
+기존 `routines`(날짜별 오늘의 운동)와 역할이 다름.
+
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| id | INT PK AUTO_INCREMENT | 고유 ID |
+| user_id | INT FK → users.id | 사용자 ID |
+| label | VARCHAR(200) | 커리큘럼 이름 (선택, 예: "4주차 감량 플랜") |
+| curriculum_json | LONGTEXT | 주간 커리큘럼 전체 JSON |
+| specialists_used | VARCHAR(100) | 참여 전문가 목록 (예: "strength,cardio,rehab") |
+| total_days | INT | 주당 운동 일수 |
+| is_valid | TINYINT(1) | 코드 검증 통과 여부 |
+| validation_json | TEXT | 검증 결과 상세 JSON |
+| created_at | DATETIME | 생성 일시 |
+
+**인덱스:**
+```sql
+CREATE INDEX idx_curricula_user ON curricula(user_id, created_at);
+```
+
+**curricula → routines 연결 (다음 세션 구현 예정):**
+```
+curricula.weekly_plan[0] → routines (오늘~N일 후 날짜별 INSERT)
+curricula.weekly_plan[1] → routines
+...
+→ GET /today 로 오늘 날짜 routines 조회 → 오늘의 운동 표시
+```
+
+### DB 테이블 역할 정리
+
+| 테이블 | 역할 | 생성 주체 |
+|--------|------|---------|
+| `users` | 사용자 프로필 (공통) | 06~10 전체 |
+| `routines` | 날짜별 오늘의 운동 (1일 1개) | 06~08, 10(예정) |
+| `workout_logs` | 실제 수행 기록 (세트/횟수/무게) | 06~08 |
+| `exercises` | 운동 마스터 목록 + GIF | 08 |
+| `curricula` | 멀티에이전트 주간 커리큘럼 저장 | 10_MultiAgent |
+
 ### ChromaDB 저장소
 
 **Docker 볼륨 구성:**
@@ -862,18 +1131,40 @@ collection.get(where={"user_id": {"$eq": user_id}})
 
 ## 환경변수 통합 요약
 
+### 공통
+
 | 변수 | 예시값 | 용도 | 필수 여부 |
 |------|--------|------|----------|
-| OPENAI_API_KEY | sk-proj-... | OpenAI API 호출 (루틴 생성 + 임베딩) | 필수 |
+| OPENAI_API_KEY | sk-proj-... | OpenAI API (루틴 생성 + 임베딩 + 에이전트) | 필수 |
 | DB_HOST | localhost | MySQL 호스트 | 필수 |
 | DB_PORT | 3306 | MySQL 포트 | 필수 |
 | DB_USER | root | MySQL 사용자 | 필수 |
 | DB_PASSWORD | - | MySQL 비밀번호 | 필수 |
 | DB_NAME | fitstep | 데이터베이스명 | 필수 |
-| RAG_API_URL | http://localhost:3000 | FastAPI 백엔드 URL | 선택 |
-| RAG_API_KEY | - | FastAPI 인증 키 | 선택 (백엔드 사용 시) |
 | MYSQL_ROOT_PASSWORD | - | Docker MySQL 초기 비밀번호 | Docker 배포 시 필수 |
-| RAPIDAPI_KEY | - | ExerciseDB API 키 (운동 GIF) | 선택 |
+
+### 08_FitStep_API 전용
+
+| 변수 | 예시값 | 용도 | 필수 여부 |
+|------|--------|------|----------|
+| RAG_API_KEY | - | FastAPI X-API-Key 인증 | 선택 (미설정 시 인증 비활성화) |
+| ANTHROPIC_API_KEY | - | Claude Haiku (공공데이터 Contextual Retrieval) | 인덱싱 시 필수 |
+| RAPIDAPI_KEY | - | ExerciseDB API (운동 GIF 동기화) | 선택 |
+
+### 07_FitStep_web 전용
+
+| 변수 | 예시값 | 용도 | 필수 여부 |
+|------|--------|------|----------|
+| RAG_API_URL | http://localhost:3000 | 08_FitStep_API 주소 | 필수 |
+| RAG_API_KEY | - | 08 API 인증 키 | 선택 |
+
+### 09_SingleAgent / 10_MultiAgent 공통
+
+| 변수 | 예시값 | 용도 | 필수 여부 |
+|------|--------|------|----------|
+| JWT_SECRET_KEY | change-me | JWT 토큰 서명 키 | 필수 |
+| TAVILY_API_KEY | tvly-... | 웹 검색 (부상/질환 특수 조건) | 선택 (없으면 웹 검색 건너뜀) |
+| AGENT_API_URL | http://localhost:8001 | Streamlit → FastAPI 주소 | Streamlit 실행 시 필수 |
 
 ---
 

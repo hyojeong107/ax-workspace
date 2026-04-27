@@ -1,4 +1,4 @@
-"""DB 연결 및 초기화"""
+"""DB 연결 및 초기화 (curricula 테이블 추가)"""
 
 import os
 import mysql.connector
@@ -14,7 +14,7 @@ def _get_pool() -> MySQLConnectionPool:
     global _pool
     if _pool is None:
         _pool = MySQLConnectionPool(
-            pool_name="fitstep_pool",
+            pool_name="fitstep_multi_pool",
             pool_size=10,
             host=os.getenv("DB_HOST", "localhost"),
             port=int(os.getenv("DB_PORT", 3306)),
@@ -52,11 +52,12 @@ def init_db():
         port=int(os.getenv("DB_PORT", 3306)),
         user=os.getenv("DB_USER", "root"),
         password=os.getenv("DB_PASSWORD", ""),
-        database=os.getenv("DB_NAME", "fitstep"),
+        database=db_name,
         charset="utf8mb4",
     )
     cursor = conn.cursor()
 
+    # users 테이블 (09_SingleAgent와 동일 스키마 유지)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id            INT AUTO_INCREMENT PRIMARY KEY,
@@ -70,10 +71,28 @@ def init_db():
             fitness_level VARCHAR(20),
             goal          VARCHAR(200),
             health_notes  TEXT,
+            injury_tags   VARCHAR(200) DEFAULT NULL,
             created_at    DATETIME DEFAULT NOW()
         )
     """)
 
+    # curricula 테이블 — 커리큘럼 결과 저장 (신규)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS curricula (
+            id               INT AUTO_INCREMENT PRIMARY KEY,
+            user_id          INT NOT NULL,
+            label            VARCHAR(200) DEFAULT NULL,
+            curriculum_json  LONGTEXT NOT NULL,
+            specialists_used VARCHAR(100) DEFAULT NULL,
+            total_days       INT DEFAULT 0,
+            is_valid         TINYINT(1) DEFAULT 1,
+            validation_json  TEXT DEFAULT NULL,
+            created_at       DATETIME DEFAULT NOW(),
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+    """)
+
+    # 기존 테이블들 (09와 호환)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS routines (
             id             INT AUTO_INCREMENT PRIMARY KEY,
@@ -102,45 +121,10 @@ def init_db():
             FOREIGN KEY (routine_id) REFERENCES routines(id)
         )
     """)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS exercises (
-            id         INT AUTO_INCREMENT PRIMARY KEY,
-            name       VARCHAR(100) NOT NULL UNIQUE,
-            name_en    VARCHAR(150),
-            category   VARCHAR(50),
-            body_part  VARCHAR(50),
-            gif_url    VARCHAR(512) DEFAULT NULL,
-            synced     TINYINT(1) DEFAULT 0,
-            created_at DATETIME DEFAULT NOW()
-        )
-    """)
 
-    # injury_tags 컬럼 추가 (없으면 추가, 있으면 무시)
-    try:
-        cursor.execute("ALTER TABLE users ADD COLUMN injury_tags VARCHAR(200) DEFAULT NULL")
-    except Exception:
-        pass
-
-    try:
-        cursor.execute("ALTER TABLE users ADD COLUMN injury_tags VARCHAR(200) DEFAULT NULL")
-    except Exception:
-        pass
-
-    for col, definition in [
-        ("gif_url", "VARCHAR(512) DEFAULT NULL"),
-        ("body_part", "VARCHAR(50)"),
-        ("synced", "TINYINT(1) DEFAULT 0"),
-        ("exercise_id", "VARCHAR(20) DEFAULT NULL"),
-    ]:
-        try:
-            cursor.execute(f"ALTER TABLE exercises ADD COLUMN {col} {definition}")
-        except Exception:
-            pass
-
-    # 성능 인덱스 — 이미 존재하면 조용히 무시
     for idx_sql in [
+        "CREATE INDEX idx_curricula_user ON curricula(user_id, created_at)",
         "CREATE INDEX idx_wl_user_logged ON workout_logs(user_id, logged_at)",
-        "CREATE INDEX idx_wl_user_exercise ON workout_logs(user_id, exercise_name)",
         "CREATE INDEX idx_rt_user_date ON routines(user_id, routine_date)",
     ]:
         try:

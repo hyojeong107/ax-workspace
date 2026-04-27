@@ -224,13 +224,11 @@ def run_validate_curriculum(args: Dict[str, Any]) -> Dict[str, Any]:
     weekly_plan = curriculum.get("weekly_plan", [])
     total_days = curriculum.get("total_days", 0)
 
-    # 일수 검증
     if len(weekly_plan) < 3:
         errors.append(f"운동 일수가 너무 적습니다. (현재 {len(weekly_plan)}일, 최소 3일)")
     if len(weekly_plan) > 5:
         errors.append(f"운동 일수가 너무 많습니다. (현재 {len(weekly_plan)}일, 최대 5일)")
 
-    # 각 세션 검증
     focus_sequence = []
     for session in weekly_plan:
         duration = session.get("duration_minutes", 0)
@@ -246,14 +244,12 @@ def run_validate_curriculum(args: Dict[str, Any]) -> Dict[str, Any]:
         focus = session.get("focus", "")
         focus_sequence.append(focus)
 
-    # 연속 같은 근육 그룹 검증
     for i in range(len(focus_sequence) - 1):
         if focus_sequence[i] and focus_sequence[i] == focus_sequence[i + 1]:
             errors.append(
                 f"근육 그룹 규칙 위반: '{focus_sequence[i]}'이 연속 이틀 훈련됩니다."
             )
 
-    # total_days 일치 여부
     if total_days != len(weekly_plan):
         warnings.append(f"total_days({total_days})와 실제 계획 일수({len(weekly_plan)})가 다릅니다.")
 

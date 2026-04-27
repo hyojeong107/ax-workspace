@@ -16,7 +16,7 @@ def _get_pool() -> MySQLConnectionPool:
         _pool = MySQLConnectionPool(
             pool_name="fitstep_pool",
             pool_size=10,
-            host=os.getenv("DB_HOST", "mysql"),
+            host=os.getenv("DB_HOST", "localhost"),
             port=int(os.getenv("DB_PORT", 3306)),
             user=os.getenv("DB_USER", "root"),
             password=os.getenv("DB_PASSWORD", ""),
@@ -32,7 +32,7 @@ def get_connection():
 
 def init_db():
     base = mysql.connector.connect(
-        host=os.getenv("DB_HOST", "mysql"),
+        host=os.getenv("DB_HOST", "localhost"),
         port=int(os.getenv("DB_PORT", 3306)),
         user=os.getenv("DB_USER", "root"),
         password=os.getenv("DB_PASSWORD", ""),
@@ -48,7 +48,7 @@ def init_db():
     base.close()
 
     conn = mysql.connector.connect(
-        host=os.getenv("DB_HOST", "mysql"),
+        host=os.getenv("DB_HOST", "localhost"),
         port=int(os.getenv("DB_PORT", 3306)),
         user=os.getenv("DB_USER", "root"),
         password=os.getenv("DB_PASSWORD", ""),

@@ -1,0 +1,59 @@
+version: "3.9"
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: fitstep_mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password
+      MYSQL_DATABASE: fitstep
+      MYSQL_USER: fitstep
+      MYSQL_PASSWORD: fitstep_password
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fitstep_multi_api
+    env_file: .env
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: fitstep
+      DB_PASSWORD: fitstep_password
+      DB_NAME: fitstep
+    ports:
+      - "8001:8000"
+    volumes:
+      # 프롬프트 파일을 볼륨으로 마운트 — 컨테이너 재빌드 없이 수정 가능
+      - ./prompts:/app/prompts:ro
+      - ./data:/app/data
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
+
+  streamlit:
+    build:
+      context: ./streamlit_app
+      dockerfile: Dockerfile
+    container_name: fitstep_multi_streamlit
+    environment:
+      AGENT_API_URL: http://api:8000
+    ports:
+      - "8502:8501"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  mysql_data:
