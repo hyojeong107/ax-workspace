@@ -12,9 +12,12 @@ sys.path.insert(0, os.path.dirname(__file__))
 from dotenv import load_dotenv
 from langchain_openai import OpenAIEmbeddings
 from langchain_chroma import Chroma
-from langchain.schema import Document
-import anthropic
+from langchain_core.documents import Document
+from openai import OpenAI
 from rank_bm25 import BM25Okapi
+from kiwipiepy import Kiwi
+
+_kiwi = Kiwi()
 
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
@@ -57,23 +60,27 @@ def _get_embeddings():
     )
 
 
-def _get_claude_client():
-    return anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+def _get_openai_client():
+    return OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
-def _generate_context(claude_client, dataset_desc: str, chunk_text: str) -> str:
-    """Claude Haiku로 청크에 대한 컨텍스트 설명을 생성합니다."""
+def _generate_context(openai_client, dataset_desc: str, chunk_text: str) -> str:
+    """GPT-4o-mini로 청크에 대한 컨텍스트 설명을 생성합니다. 실패 시 빈 문자열 반환."""
     prompt = (
         f"다음은 데이터셋 설명입니다:\n{dataset_desc}\n\n"
         f"다음 청크에 대해 간결한 컨텍스트 설명을 한 문장으로 작성하세요. "
         f"형식: '이 청크는 [내용 요약].'\n\n청크:\n{chunk_text}"
     )
-    response = claude_client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=150,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return response.content[0].text.strip()
+    try:
+        response = openai_client.chat.completions.create(
+            model="gpt-4o-mini",
+            max_tokens=150,
+            timeout=15,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return response.choices[0].message.content.strip()
+    except Exception:
+        return ""
 
 
 def _make_contextual_text(dataset_desc: str, context: str, chunk_text: str) -> str:
@@ -82,8 +89,9 @@ def _make_contextual_text(dataset_desc: str, context: str, chunk_text: str) -> s
 
 
 def _tokenize(text: str) -> list[str]:
-    """BM25용 단순 공백/자모 토크나이저."""
-    return text.split()
+    """BM25용 한국어 형태소 토크나이저 (kiwipiepy)."""
+    tokens = _kiwi.tokenize(text)
+    return [t.form for t in tokens if len(t.form) > 1]
 
 
 def _bmi_category(bmi_val) -> str:
@@ -151,7 +159,7 @@ def _build_fitness_sentence(row: dict) -> str:
 def index_fitness_data(force_reindex: bool = False):
     print("체력측정 데이터 인덱싱 시작 (Contextual Retrieval)...")
     embeddings = _get_embeddings()
-    claude_client = _get_claude_client()
+    openai_client = _get_openai_client()
 
     store = Chroma(
         collection_name=FITNESS_COLLECTION,
@@ -180,7 +188,7 @@ def index_fitness_data(force_reindex: bool = False):
             continue
 
         # Claude로 컨텍스트 생성
-        context = _generate_context(claude_client, FITNESS_DATASET_DESC, text)
+        context = _generate_context(openai_client, FITNESS_DATASET_DESC, text)
         contextual_text = _make_contextual_text(FITNESS_DATASET_DESC, context, text)
 
         bmi_raw = row.get("MESURE_IEM_007_VALUE")
@@ -238,7 +246,7 @@ def index_fitness_data(force_reindex: bool = False):
 def index_exercise_recommendation(force_reindex: bool = False):
     print("운동추천 데이터 인덱싱 시작 (Contextual Retrieval)...")
     embeddings = _get_embeddings()
-    claude_client = _get_claude_client()
+    openai_client = _get_openai_client()
 
     store = Chroma(
         collection_name=EXERCISE_COLLECTION,
@@ -281,7 +289,7 @@ def index_exercise_recommendation(force_reindex: bool = False):
         text = f"{age} {gender_str} {bmi_grade} {award_grade} {step}: {exercises_str}"
 
         # Claude로 컨텍스트 생성
-        context = _generate_context(claude_client, EXERCISE_DATASET_DESC, text)
+        context = _generate_context(openai_client, EXERCISE_DATASET_DESC, text)
         contextual_text = _make_contextual_text(EXERCISE_DATASET_DESC, context, text)
 
         metadata = {

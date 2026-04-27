@@ -2,12 +2,15 @@ version: "3.9"
 
 services:
   mysql:
+    platform: ${DOCKER_DEFAULT_PLATFORM:-}
     image: mysql:8.0
     container_name: fitstep_mysql
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: fitstep
       MYSQL_CHARSET: utf8mb4
+    ports:
+      - "3307:3306"
     volumes:
       - mysql_data:/var/lib/mysql
     restart: unless-stopped
@@ -16,6 +19,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 30s
 
   gym-rag:
     build: .
@@ -24,6 +28,7 @@ services:
       - "8000:8000"
     environment:
       - OPENAI_API_KEY
+      - ANTHROPIC_API_KEY
       - DB_HOST=mysql
       - DB_PORT=3306
       - DB_USER=root
@@ -36,6 +41,24 @@ services:
       - gifs_data:/app/app/static/gifs
     depends_on:
       mysql:
+        condition: service_healthy
+    restart: unless-stopped
+
+  streamlit:
+    build:
+      context: ..
+      dockerfile: 07_FitStep_Web/Dockerfile
+    container_name: fitstep_streamlit
+    ports:
+      - "8501:8501"
+    environment:
+      - OPENAI_API_KEY
+      - RAG_API_KEY=${RAG_API_KEY}
+      - RAG_API_URL=http://gym-rag:8000
+    env_file:
+      - .env
+    depends_on:
+      gym-rag:
         condition: service_healthy
     restart: unless-stopped
 

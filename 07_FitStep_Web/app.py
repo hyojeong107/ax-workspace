@@ -1239,7 +1239,17 @@ def page_recommend():
             
             with col1:
                 if gif_url and isinstance(gif_url, str) and gif_url.startswith("http"):
-                    st.image(gif_url, use_container_width=True)
+                    try:
+                        import requests as _req
+                        img_bytes = _req.get(gif_url, timeout=5).content
+                        st.image(img_bytes, use_container_width=True)
+                    except Exception:
+                        st.markdown(
+                            "<div style='height:120px; display:flex; align-items:center;"
+                            " justify-content:center; background:rgba(0,0,0,0.04);"
+                            " border-radius:12px; color:#aaa; font-size:0.85rem;'>🖼 이미지 준비 중</div>",
+                            unsafe_allow_html=True,
+                        )
                 else:
                     st.markdown(
                         "<div style='height:120px; display:flex; align-items:center;"

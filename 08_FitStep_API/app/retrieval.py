@@ -5,8 +5,11 @@ import os
 import pickle
 
 from flashrank import Ranker, RerankRequest
+from kiwipiepy import Kiwi
 
 from app.indexing import _get_gym_store, _get_fitness_store, _get_exercise_store
+
+_kiwi = Kiwi()
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
 BM25_FITNESS_PATH = os.path.join(DATA_DIR, "bm25_fitness.pkl")
@@ -40,7 +43,9 @@ def _rerank(query: str, docs: list[str], top_k: int) -> list[str]:
 
 
 def _tokenize(text: str) -> list[str]:
-    return text.split()
+    """BM25용 한국어 형태소 토크나이저 (kiwipiepy)."""
+    tokens = _kiwi.tokenize(text)
+    return [t.form for t in tokens if len(t.form) > 1]
 
 
 def _load_bm25(path: str):
