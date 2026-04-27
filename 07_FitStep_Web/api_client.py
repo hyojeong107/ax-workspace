@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 def _base() -> str:
-    url = os.getenv("RAG_API_URL", "")
+    url = os.getenv("RAG_API_URL", "http://localhost:8000")
     if not url:
         try:
             import streamlit as st

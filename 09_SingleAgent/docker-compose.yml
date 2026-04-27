@@ -1,0 +1,44 @@
+version: "3.9"
+
+services:
+  single-agent:
+    build: .
+    container_name: fitstep_single_agent
+    ports:
+      - "8001:8000"
+    environment:
+      - OPENAI_API_KEY
+      - TAVILY_API_KEY
+      - JWT_SECRET_KEY
+      # 08의 MySQL 컨테이너명으로 직접 참조
+      - DB_HOST=fitstep_mysql
+      - DB_PORT=3306
+      - DB_USER=root
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=fitstep
+    env_file:
+      - .env
+    volumes:
+      - chroma_data:/app/data/chroma_db
+    networks:
+      - default
+      - fitstep_net   # 08의 네트워크 참조
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 5
+
+
+volumes:
+  chroma_data:
+    external: true
+    name: 08fitstepapi_chroma_data
+
+networks:
+  default: {}
+  fitstep_net:
+    external: true
+    name: 08fitstepapi_default   # 08 docker-compose가 자동 생성하는 네트워크명

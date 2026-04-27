@@ -25,6 +25,9 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+if sys.stdout.encoding != "utf-8":
+    sys.stdout.reconfigure(encoding="utf-8")
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -45,7 +48,10 @@ REPORT_DIR = Path(__file__).parent / "reports"
 
 SYSTEM_PROMPT = (
     "당신은 개인 맞춤형 운동 처방 전문가입니다. "
-    "아래 컨텍스트를 바탕으로 사용자에게 맞는 운동 조언을 제공하세요.\n\n"
+    "아래 컨텍스트를 최대한 활용하여 답변하세요. "
+    "컨텍스트에 구체적인 운동명, 횟수, 시간, 강도가 있다면 반드시 그대로 활용하세요. "
+    "컨텍스트에 없는 내용은 사용자 프로필(나이, 성별, BMI)에 맞는 일반적인 운동 원칙으로 보완하세요.\n\n"
+    "## 참고 컨텍스트\n\n"
 )
 
 
@@ -262,7 +268,7 @@ def main(testset_path: Path, output: str, run_faith: bool) -> None:
     results = []
 
     for idx, item in enumerate(items, 1):
-        print(f"[{idx}/{len(items)}] {item['id']} — {item.get('description', '')}")
+        print(f"[{idx}/{len(items)}] {item['id']} - {item.get('description', '')}")
         result = _evaluate_case(item, client, run_faith)
         s = result["scores"]
         faith_str = f"{s['faithfulness']:.4f}" if isinstance(s["faithfulness"], float) else "skipped"
