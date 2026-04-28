@@ -807,6 +807,42 @@ Streamlit 요일 탭 UI
   → 오늘 탭 자동 포커스 + 운동 카드 + 완료 체크
 ```
 
+#### 구현 상세 계획 (07/08/10 연동)
+
+**1단계 — DB 스키마 변경 (08_FitStep_API)**
+```sql
+-- routines 테이블에 요일 컬럼 추가
+ALTER TABLE routines ADD COLUMN day_of_week VARCHAR(2) NULL COMMENT '월화수목금토일';
+```
+
+**2단계 — API 수정 (08_FitStep_API)**
+
+- `db_schemas.py`: `RoutineSave`에 `day_of_week: Optional[str] = None` 추가
+- `db_router.py`:
+  - `save_routine()`: INSERT 시 `day_of_week` 포함
+  - `get_today_routine()`: `routine_date` 기준 조회 → `day_of_week` 기준으로 전환
+  - 신규 엔드포인트 `GET /db/routines/week/{user_id}`: 요일별 루틴 전체 반환
+
+**3단계 — 웹 UI 수정 (07_FitStep_web)**
+
+- `page_recommend()`: `st.tabs(["월","화","수","목","금","토","일"])` 추가
+  - 오늘 요일 탭 자동 포커스
+  - 각 탭에서 해당 요일 루틴 조회/표시
+  - "활성화" 버튼: `POST /curricula/{id}/activate` → routines 날짜별 분해 저장
+- `api_client.py`: `api_get_today_routine()` 수정, `api_get_week_routines()` 신규 추가
+
+**데이터 흐름 요약:**
+```
+10_MultiAgent: POST /curricula/{id}/activate
+  → weekly_plan을 요일별로 분해
+  → 08: POST /db/routines (day_of_week 포함, 날짜 지정)
+  
+07_FitStep_web: 요일 탭 클릭
+  → 08: GET /db/routines/week/{user_id}
+  → 오늘 탭 루틴 → 운동 카드 표시 + 완료 체크
+  → 완료 시: POST /db/logs + PATCH /db/routines/{id}/complete
+```
+
 ### 도커 실행
 
 ```bash
