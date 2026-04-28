@@ -5,6 +5,9 @@
 **/.env.*
 .streamlit/secrets.toml
 **/.streamlit/secrets.toml
+
+# Root docker-compose (contains hardcoded secrets)
+/docker-compose.yml
 .venv
 env/
 venv/
