@@ -1,6 +1,7 @@
 # Secrets
 .env
 .env.*
+.streamlit/secrets.toml
 
 # Python
 __pycache__/
@@ -11,8 +12,6 @@ __pycache__/
 # Database / Vector store
 *.db
 *.sqlite
-data/chroma_db/
-data/*.pkl
 
 # Virtual environments
 venv/

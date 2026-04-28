@@ -1,18 +1,25 @@
-# API 키 등 민감한 정보 - 절대 깃에 올리면 안 됨
+# Secrets
 .env
+.env.*
 
-# 파이썬 캐시 파일
+# Streamlit
+.streamlit/secrets.toml
+
+# Python
 __pycache__/
 *.pyc
 *.pyo
+*.pyd
 
-# 데이터베이스 파일
+# Database / Vector store
 *.db
+*.sqlite
 data/
+chroma_db/
 
-# 가상환경
+# Virtual environments
 venv/
 .venv/
 
-# macOS 시스템 파일
+# OS
 .DS_Store

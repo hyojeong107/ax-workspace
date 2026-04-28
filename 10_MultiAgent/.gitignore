@@ -11,8 +11,7 @@ __pycache__/
 # Database / Vector store
 *.db
 *.sqlite
-data/chroma_db/
-data/*.pkl
+data/
 
 # Virtual environments
 venv/
